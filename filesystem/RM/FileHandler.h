@@ -32,7 +32,7 @@ class FileHandler
 
     int maxRecPerPage;
 
-    private void init(int fid, BufPageManager* bpm){
+    void init(int fid, BufPageManager* bpm){
         fid=fid;
         hasInit=true;
         bpm=bpm;
@@ -43,6 +43,9 @@ class FileHandler
         maxRecPerPage=PAGE_SIZE/recordLenth;
     }
     public:
+        /**
+         * One of the few methods that can materialized a Record object
+        */
         bool GetRec(const RID &rid, Record & record){
             if(!hasInit){
                 std::cout<<"In FileHandler::GetRec: called without init\n";
@@ -55,7 +58,7 @@ class FileHandler
             bpm->access(bufIdx);
             record.data=new char[recordLenth];
             memcpy(record.data,((char*)pageData)+rid.GetSlotNum()*recordLenth,recordLenth);
-            Record.id=&rid;
+            record.id = new RID(rid.GetPageNum(), rid.GetSlotNum());
             return true;
         }
 
@@ -84,19 +87,30 @@ class FileHandler
         }
 
         bool UpdateRec(Record &record){
-            RID rid=new RID();
-            bool ridret=record.GetRID(rid);
+            RID* rid=new RID();
+            bool ridret=record.GetRid(*rid);
             if(!ridret){
-                std::cout<<"In FileHandler::UpdateRec"
+                std::cout<<"In FileHandler::UpdateRec: cannot get rid\n";
+                delete rid;
                 return false;
             }
-            GetPageBuf(rid.GetPageNum());
+            GetPageBuf(rid->GetPageNum());
             bpm->access(bufIdx);
-            memcpy((((char*)pageData)+rid.GetSlotNum()*recordLenth),record.GetData(),recordLenth);
+            char *data = nullptr;
+            bool dataret = record.GetData(data);
+            if(!dataret){
+                std::cout<<"In FileHandler::UpdateRec: cannot get data\n";
+                delete rid;
+                return false;
+            }
+            memcpy((((char*)pageData)+rid->GetSlotNum()*recordLenth), data, recordLenth);
             bpm->markDirty(bufIdx);
+            delete rid;
             return true;
         }
-
+        /**
+        *Write all pages back to storage
+        **/
         bool Close(){
             bpm->close();
             pageData = nullptr;
@@ -106,7 +120,8 @@ class FileHandler
         }
 
         //below are private helper methods defined by msh
-        private BufType GetBuf(BufType &buf, int& idx, int page){
+    private:
+        BufType GetBuf(BufType &buf, int& idx, int page){
             if(buf == nullptr)
                 return buf=bpm->getPage(fid,page,idx);
             int curId,curPage;
@@ -116,20 +131,20 @@ class FileHandler
             else
                 return buf=bpm->getPage(fid,page,idx);
         }
-        private BufType GetPageBuf(int page){
+        BufType GetPageBuf(int page){
             return GetBuf(pageData,bufIdx,page);
         }
-        private BufType GetHeadBuf(){
+        BufType GetHeadBuf(){
             return GetBuf(headData,headIdx,0);
         }
         ///set a bit to 1
-        private void SetBitArray(int pageNum, int slotNum){
+        void SetBitArray(int pageNum, int slotNum){
             int globalIdx=pageNum*maxRecPerPage+slotNum;
             int byteOffset=globalIdx/8, bitOffset=globalIdx&7;
             (*(((char*)(headData+2))+byteOffset))|=(128>>bitOffset);
         }
         ///clear a bit
-        private void ClearBitArray(int pageNum, int slotNum){
+        void ClearBitArray(int pageNum, int slotNum){
             int globalIdx=pageNum*maxRecPerPage+slotNum;
             int byteOffset=globalIdx/8, bitOffset=globalIdx&7;
             (*(((char*)(headData+2))+byteOffset))&=(~(128>>bitOffset));

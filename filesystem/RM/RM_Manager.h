@@ -11,11 +11,11 @@ class RM_Manager
 
     public:
         RM_Manager(FileManager &fm){
-            this.fm=&fm;
+            this->fm=&fm;
         }
 
         void SetBPM(BufPageManager *bpm){
-            bpm = bpm;
+            this->bpm = bpm;
         }
         /**
         *@brief
@@ -53,7 +53,7 @@ class RM_Manager
         }
 
         bool DestroyFile(const char* fileName){
-            int rmret=remove(filename);
+            int rmret=remove(fileName);
             if(rmret!=0){
                 std::cout<<"In RM_Manager::DestroyFile: error in remove\n";
                 return false;
@@ -63,7 +63,7 @@ class RM_Manager
 
         bool OpenFile(const char* fileName, FileHandler &fileHandler){
             int fid;
-            bool openret=fm->openFile(filenName,fid);
+            bool openret=fm->openFile(fileName,fid);
             if(!openret){
                 std::cout<<"In RM_Manager::OpenFile: open failed\n";
                 return false;
@@ -72,7 +72,13 @@ class RM_Manager
         }
 
         bool CloseFile(FileHandler& handler){
-            int closeret = fm.closeFile(handler.fid);
+            int closeret = fm->closeFile(handler.fid);
+            if(closeret != 0){
+                std::cout<<"In RM_Manager::CloseFile: close failed\n";
+                return false;
+            }
+            handler.init = false;
+            return true;
         }
 };
 

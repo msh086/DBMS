@@ -25,12 +25,16 @@ class Record
             return true;
         }
         /**
-        *Memory first allocated in FileHandler::GetRec
+        *Memory management is always Record's duty once 
         */
         ~Record(){
-            if(data!=nullptr){
+            if(data != nullptr){
                 delete[] data;
-                data=nullptr;
+                data = nullptr;
+            }
+            if(id != nullptr){
+                delete id;
+                id = nullptr;
             }
         }
     friend class FileHandler;//need to assign rid and data in FileHandler.GetRec
