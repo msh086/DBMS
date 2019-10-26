@@ -1,0 +1,7 @@
+# build files
+bin
+obj
+
+# codeblocks project settings
+*.layout
+*.cbp
