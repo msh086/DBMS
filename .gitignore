@@ -1,7 +1,9 @@
-# build files
-bin
-obj
+# ignore all
+*
 
-# codeblocks project settings
-*.layout
-*.cbp
+# choose source & headerFiles
+!*.h
+!*.cpp
+
+# choose txt files
+*.txt

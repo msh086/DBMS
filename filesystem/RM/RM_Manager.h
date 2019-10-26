@@ -1,15 +1,21 @@
 #ifndef RM_MANAGER_H_INCLUDED
 #define RM_MANAGER_H_INCLUDED
 #include "../fileio/FileManager.h"
+#include "../bufmanager/BufPageManager.h"
 #include "FileHandler.h"
 class RM_Manager
 {
     private:
         FileManager* fm=nullptr;
+        BufPageManager *bpm = nullptr;
 
     public:
         RM_Manager(FileManager &fm){
             this.fm=&fm;
+        }
+
+        void SetBPM(BufPageManager *bpm){
+            bpm = bpm;
         }
         /**
         *@brief
@@ -62,7 +68,11 @@ class RM_Manager
                 std::cout<<"In RM_Manager::OpenFile: open failed\n";
                 return false;
             }
-            fileHandler.init(fid,)
+            fileHandler.init(fid, bpm);
+        }
+
+        bool CloseFile(FileHandler& handler){
+            int closeret = fm.closeFile(handler.fid);
         }
 };
 
