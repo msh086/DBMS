@@ -2,6 +2,7 @@
 #define RECORD_H_INCLUDED
 #include "RID.h"
 class FileHandler;
+class Table;
 class Record
 {
     private:
@@ -12,20 +13,14 @@ class Record
             id=id;
         }
     public:
-        bool GetData(char *&pData)const{
-            if(data==nullptr)
-                return false;
-            pData=data;
-            return true;
+        char* GetData()const{
+            return data;
         }
-        bool GetRid(RID &rid)const{
-            if(id==nullptr)
-                return false;
-            rid=*id;
-            return true;
+        RID* GetRid()const{
+            return id;
         }
         /**
-        *Memory management is always Record's duty once 
+        *Memory management is always Record's duty once it's assigned to one of Record's fields
         */
         ~Record(){
             if(data != nullptr){
@@ -38,6 +33,7 @@ class Record
             }
         }
     friend class FileHandler;//need to assign rid and data in FileHandler.GetRec
+    friend class Table;
 };
 
 

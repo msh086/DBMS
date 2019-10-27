@@ -109,6 +109,21 @@ public:
 			return b;
 		}
 	}
+	/**
+	 * Similar to getPage, except that you have a suspect for index
+	 * Faster than getPage sometimes and won't be noticably slower than it in any occasion
+	 * Use char* instead of uint* for argument and return value
+	*/
+	char* reusePage(int fileID, int pageID, int& index, char* buf){
+		if(buf == nullptr)
+			return (char*)getPage(fileID, pageID, index);
+		int tmpFID, tmpPID;
+		getKey(index, tmpFID, tmpPID);
+		if(tmpFID == fileID && tmpFID == pageID)
+			return buf;
+		else
+			return (char*)getPage(fileID, pageID, index);
+	}
 	/*
 	 * @函数名access
 	 * @参数index:缓存页面数组中的下标，用来表示一个缓存页面
@@ -174,12 +189,10 @@ public:
 	void getKey(int index, int& fileID, int& pageID) {
 		hash->getKeys(index, fileID, pageID);
 	}
-	static BufPageManager* NewInstance(FileManager* fm){
-		if(instance != nullptr)
-			return instance = new BufPageManager(fm);
-		return nullptr;
-	}
+	
 	static BufPageManager* Instance(){
+		if(instance == nullptr)
+			instance = new BufPageManager(FileManager::Instance());
 		return instance;
 	}
 };
