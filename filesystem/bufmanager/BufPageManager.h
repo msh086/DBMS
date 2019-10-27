@@ -11,7 +11,7 @@
  * 实现了一个缓存的管理器
  */
 struct BufPageManager {
-public:
+private:
 	int last;
 	FileManager* fileManager;
 	MyHashMap* hash;
@@ -42,6 +42,27 @@ public:
 		}
 		hash->replace(index, typeID, pageID);
 		return b;
+	}
+	static BufPageManager *instance;
+	
+	/*
+	 * 构造函数
+	 * @参数fm:文件管理器，缓存管理器需要利用文件管理器与磁盘进行交互
+	 */
+	BufPageManager(FileManager* fm) {
+		int c = CAP;
+		int m = MOD;
+		last = -1;
+		fileManager = fm;
+		//bpl = new MyLinkList(CAP, MAX_FILE_NUM);
+		dirty = new bool[CAP];
+		addr = new BufType[CAP];
+		hash = new MyHashMap(c, m);
+	    replace = new FindReplace(c);
+		for (int i = 0; i < CAP; ++ i) {
+			dirty[i] = false;
+			addr[i] = NULL;
+		}
 	}
 public:
 	/*
@@ -153,24 +174,14 @@ public:
 	void getKey(int index, int& fileID, int& pageID) {
 		hash->getKeys(index, fileID, pageID);
 	}
-	/*
-	 * 构造函数
-	 * @参数fm:文件管理器，缓存管理器需要利用文件管理器与磁盘进行交互
-	 */
-	BufPageManager(FileManager* fm) {
-		int c = CAP;
-		int m = MOD;
-		last = -1;
-		fileManager = fm;
-		//bpl = new MyLinkList(CAP, MAX_FILE_NUM);
-		dirty = new bool[CAP];
-		addr = new BufType[CAP];
-		hash = new MyHashMap(c, m);
-	    replace = new FindReplace(c);
-		for (int i = 0; i < CAP; ++ i) {
-			dirty[i] = false;
-			addr[i] = NULL;
-		}
+	static BufPageManager* NewInstance(FileManager* fm){
+		if(instance != nullptr)
+			return instance = new BufPageManager(fm);
+		return nullptr;
+	}
+	static BufPageManager* Instance(){
+		return instance;
 	}
 };
+BufPageManager* BufPageManager::instance = nullptr;
 #endif

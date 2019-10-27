@@ -42,6 +42,25 @@
  * 数据库中表的个数上限
  */
 #define MAX_TB_NUM 31
+
+//below macros are added by msh
+/**
+ * Max string length for an attribute
+*/
+#define MAX_ATTRI_NAME_LEN 64
+/**
+ * Max string length for a database name
+*/
+#define MAX_DB_NAME_LEN 64
+/**
+ * Max string length for a table name
+*/
+#define MAX_TABLE_NAME_LEN 64
+/**
+ * Max times a table can be referrence as a foreign key source
+*/
+#define MAX_FOREIGN_TIME 32
+
 #define RELEASE 1
 typedef unsigned int* BufType;
 typedef unsigned int uint;
