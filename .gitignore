@@ -1,7 +1,9 @@
 # ignore all
 *
+/*
 
 # choose source & headerFiles
+!*/
 !*.h
 !*.cpp
 

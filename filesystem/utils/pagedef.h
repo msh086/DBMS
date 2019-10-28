@@ -58,8 +58,13 @@
 #define MAX_TABLE_NAME_LEN 64
 /**
  * Max times a table can be referrence as a foreign key source
+ * P.S. In fact, MAX_FOREIGN_TIME is always no greater than MAX_TB_NUM - 1
 */
-#define MAX_FOREIGN_TIME 32
+#define MAX_FOREIGN_TIME 30
+/**
+ * 
+*/
+#define VARCHAR_FRAG_LEN 500
 
 #define RELEASE 1
 typedef unsigned int* BufType;
