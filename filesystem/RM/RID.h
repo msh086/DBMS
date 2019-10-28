@@ -1,5 +1,7 @@
 #ifndef RID_H_INCLUDED
 #define RID_H_INCLUDED
+class Table;
+
 class RID
 {
     private:
@@ -14,6 +16,7 @@ class RID
         unsigned int GetSlotNum()const{
             return SlotNum;
         }
+        friend class Table;
 };
 
 

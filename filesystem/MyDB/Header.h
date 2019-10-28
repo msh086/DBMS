@@ -10,7 +10,7 @@ class Header{
         uint recordLenth = 0;// The length of a record in BYTES. Records should have length of full bytes. Equals to the sum of attrLenth
         uint slotNum = 0;// The number of records a page can hold, equals to PAGE_SIZE / recordLenth
         uint recordNum = 0;
-        uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3
+        uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
         uint nullMask = 0;
         uint primaryKeyMask = 0;
         uint foreignKeyMask = 0;
@@ -18,7 +18,8 @@ class Header{
         // For attrLenth, if we store varchar locally, each element will take a uint
         // If we store varchar as a pointer to their real location, each element can be a char
         // An idea: in another table {tablename}_VAR, break a varchar into parts of VARCHAR_FRAG_LEN bytes and store a varchar as a linked list
-        // A record in {tablename}_VAR looks like [(varchar fragment data), nextPage, nextSlot, length]. So record length is VARCHAR_FRAG_LEN + 12
+        // A record in {tablename}_VAR looks like [(varchar fragment data), nextPage, nextSlot, length, isDefault].
+        // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 1 + 1
         // While in {tablename}, only the RID of the head record in {tablename}_VAR is stored
         uint attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
         char attrType[MAX_COL_NUM] = "";

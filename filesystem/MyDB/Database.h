@@ -54,12 +54,24 @@ class Database{
                 printf("In Database::CreateTable, cannot open file\n");
                 return;
             }
-            char* buffer = new char[PAGE_SIZE];
+            char* buffer = new char[PAGE_SIZE]{};
+            //handle default record
+            if(header->defaultKeyMask != 0){
+                buffer[header->lenth] = 128;
+                header->recordNum = 1;
+                header->exploitedNum = 1;
+                char* defaultBuf = new char[PAGE_SIZE]{};
+                memcpy(defaultBuf, defaultRecord, header->recordLenth);
+                int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
+                delete[] defaultBuf;
+                if(defaultret != 0)
+                    printf("In Database::CreateTable, cannot write default record\n");
+            }
             header->ToString(buffer);
             int writeret = fm->writePage(fid, 0, (BufType)buffer, 0);
             delete[] buffer;
             if(writeret != 0){
-                printf("In Database::CreateTable, cannot write file\n");
+                printf("In Database::CreateTable, cannot write header\n");
             }
             int closeret = fm->closeFile(fid); // Even if file cannot be written, it still should be closed
             if(closeret != 0){
@@ -67,7 +79,10 @@ class Database{
             }
         }
 
-        void RemoveTable(const char* tablename){
+        /**
+         * Do not delete an opened file!
+        */
+        void DeleteTable(const char* tablename){
             remove(tablename);
             //TODO : cascade deletion for foreign keys
         }
