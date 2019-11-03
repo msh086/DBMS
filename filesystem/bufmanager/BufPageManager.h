@@ -119,7 +119,7 @@ public:
 			return (char*)getPage(fileID, pageID, index);
 		int tmpFID, tmpPID;
 		getKey(index, tmpFID, tmpPID);
-		if(tmpFID == fileID && tmpFID == pageID)
+		if(tmpFID == fileID && tmpPID == pageID)
 			return buf;
 		else
 			return (char*)getPage(fileID, pageID, index);

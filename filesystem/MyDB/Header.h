@@ -34,6 +34,28 @@ class Header{
             MAX_COL_NUM * 2 +
             MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN;
 
+#ifdef DEBUG
+        void DebugPrint(){
+            printf("recordLenth = %u\n", recordLenth);
+            printf("slotNum = %u\n", slotNum);
+            printf("recordNum = %u\n", recordNum);
+            printf("exploitedNum = %u\n", exploitedNum);
+            printf("nullMask = %u\n", nullMask);
+            printf("primaryKeyMask = %u\n", primaryKeyMask);
+            printf("foreignKeyMask = %u\n", foreignKeyMask);
+            printf("defaultKeyMask = %u\n", defaultKeyMask);
+            printf("***attrLenth:\n    ");
+            for(int i = 0; i < MAX_COL_NUM; i ++)
+                printf("(%d, %u) ", i, attrLenth[i]);
+            printf("\n");
+            printf("***attrType:\n    ");
+            for(int i = 0; i < MAX_COL_NUM; i ++)
+                printf("(%d, %u) ", i, attrType[i]);
+            printf("\n");
+            // TODO: finish debug print
+        }
+#endif
+
         void ToString(void* dst){
             uint* uintPtr = (uint*)dst;
             uintPtr[0] = recordLenth;

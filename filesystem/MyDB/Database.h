@@ -18,7 +18,7 @@ class Database{
     // Private helper methods added by msh
     int getActiveTableIndex(const char* tablename){
         for(int i = 0; i < activeTableNum; i++)
-            if(activeTables[i]->tablename == tablename)
+            if(!strncmp(activeTables[i]->tablename, tablename, MAX_TABLE_NAME_LEN))
                 return i;
         return -1;
     }
@@ -55,18 +55,17 @@ class Database{
                 return;
             }
             char* buffer = new char[PAGE_SIZE]{};
-            //handle default record
-            if(header->defaultKeyMask != 0){
-                buffer[header->lenth] = 128;
-                header->recordNum = 1;
-                header->exploitedNum = 1;
-                char* defaultBuf = new char[PAGE_SIZE]{};
-                memcpy(defaultBuf, defaultRecord, header->recordLenth);
-                int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
-                delete[] defaultBuf;
-                if(defaultret != 0)
-                    printf("In Database::CreateTable, cannot write default record\n");
-            }
+            //handle default record, which always exists not matter the value of defaultKeyMask
+            buffer[header->lenth] = 128; // manually set the first bit in bitmap to 1
+            header->recordNum = 1;
+            header->exploitedNum = 1;
+            char* defaultBuf = new char[PAGE_SIZE]{};
+            memcpy(defaultBuf, defaultRecord, header->recordLenth);
+            int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
+            delete[] defaultBuf;
+            if(defaultret != 0)
+                printf("In Database::CreateTable, cannot write default record\n");
+            
             header->ToString(buffer);
             int writeret = fm->writePage(fid, 0, (BufType)buffer, 0);
             delete[] buffer;
@@ -120,6 +119,8 @@ class Database{
                 if(closeret != 0)
                     printf("In Database::CloseTable, cannot close file\n");
             }
+            else
+                printf("No such table\n");
         }
 };
 BufPageManager* Database::bpm = BufPageManager::Instance();

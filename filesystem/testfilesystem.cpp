@@ -19,24 +19,31 @@
  * 不要自行进行类似的delete[] b操作，内存的申请和释放都在BufPageManager中做好
  * 如果自行进行类似free(b)或者delete[] b的操作，可能会导致严重错误
  */
-#include "bufmanager/BufPageManager.h"
-#include "fileio/FileManager.h"
-#include "utils/pagedef.h"
+#include "MyDB/Table.h"
+#include "MyDB/Scanner.h"
+#include "MyDB/Header.h"
+#include "MyDB/Database.h"
 #include <iostream>
 
 using namespace std;
 
 int main() {
-//    unsigned int buf[PAGE_INT_NUM]={0};
-//    for(int i=0;i<PAGE_INT_NUM;++i)
-//        if(buf[i]!=0){
-//            printf("error\n");
-//            return 0;
-//        }
-//    printf("Ok\n");
-//    return 0;
-
-
+	Database* db = new Database();
+	Header * header = new Header();
+	header->recordLenth = 10;
+	header->slotNum = (uint)PAGE_SIZE / header->recordLenth;
+	db->CreateTable("tb", header, "0123456789");
+	
+	Table* table = db->OpenTable("tb");
+	table->DebugPrint();
+	RID* rid = table->InsertRecord("a record!!");
+	printf("The rid of inserted record: %u, %u\n", rid->GetPageNum(), rid->GetSlotNum());
+	db->CloseTable("tb");
+	table = db->OpenTable("tb");
+	table->DebugPrint();
+	db->CloseTable("tb");
+	// db->DeleteTable("tb");
+/*
 	MyBitMap::initConst();   //新加的初始化
 	FileManager* fm = new FileManager();
 	BufPageManager* bpm = new BufPageManager(fm);
@@ -73,6 +80,8 @@ int main() {
 		cout << b[0] << ":" << b[1] << endl;
 		bpm->access(index);
 	}
+*/
+
 	//程序结束前可以调用BufPageManager的某个函数将缓存中的内容写回
 	//具体的函数大家可以看看ppt或者程序的注释
 	return 0;

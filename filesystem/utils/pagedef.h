@@ -62,9 +62,11 @@
 */
 #define MAX_FOREIGN_TIME 30
 /**
- * 
+ * Length of fragments to break varchar into
 */
 #define VARCHAR_FRAG_LEN 500
+
+#define DEBUG // If this macro is set, debug methods are available
 
 #define RELEASE 1
 typedef unsigned int* BufType;

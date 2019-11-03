@@ -116,11 +116,28 @@ class Table{
     }
 
     public:
+#ifdef DEBUG
+        void DebugPrint(){
+            header->DebugPrint();
+        }
+#endif
+
+        Table(){
+            header = new Header();
+        }
+
+        ~Table(){
+            delete header;
+        }
         /**
          * Return a COPY of the record of rid
          * The memory of return value needs to be manually released
         */
         Record* GetRecord(const RID& rid){
+            if(rid.GetPageNum() == 0){
+                printf("In Table::GetRecord, trying to get record from the header page\n");
+                return nullptr;
+            }
             tmpBuf = bpm->reusePage(fid, rid.GetPageNum(), tmpIdx, tmpBuf);
             bpm->access(tmpIdx);
             Record* ans = new Record();
@@ -145,7 +162,7 @@ class Table{
             bpm->access(headerIdx);
             bpm->markDirty(headerIdx);
             //inserting the record
-            int page = firstEmptySlot / header->slotNum, slot = firstEmptySlot % header->slotNum;
+            int page = firstEmptySlot / header->slotNum + 1, slot = firstEmptySlot % header->slotNum;
             tmpBuf = bpm->reusePage(fid, page, tmpIdx, tmpBuf);
             memcpy(tmpBuf + slot * header->recordLenth, data, header->recordLenth);
             bpm->access(tmpIdx);
@@ -154,6 +171,10 @@ class Table{
         }
 
         void DeleteRecord(const RID& rid){
+            if(rid.GetPageNum() == 0){
+                printf("In Table::DeleteRecord, trying to delete a record from header page\n");
+                return;
+            }
             //updating the header
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
             int slotNumber = rid.GetPageNum() * header->slotNum + rid.GetSlotNum();
@@ -168,6 +189,10 @@ class Table{
         }
 
         void UpdateRecord(const Record& record){
+            if(record.id->PageNum == 0){
+                printf("In Table::UpdateRecord, trying to update a record from header page\n");
+                return;
+            }
             tmpBuf = bpm->reusePage(fid, record.GetRid()->GetPageNum(), tmpIdx, tmpBuf);
             memcpy(tmpBuf + record.GetRid()->GetSlotNum() * header->recordLenth, record.GetData(), header->recordLenth);
             bpm->access(tmpIdx);
@@ -185,14 +210,18 @@ class Table{
          * Get the RID of the first record after rid (included), return success/failure
         */
         bool NextRecord(RID& rid){
+            if(rid.PageNum == 0){
+                printf("In Table::NextRecord, pageNum is 0\n");
+                return false;
+            }
             // forbid user to get the default record if exists
-            if(rid.PageNum == 0 && rid.SlotNum == 0 && header->defaultKeyMask)
+            if(rid.PageNum == 1 && rid.SlotNum == 0 && header->defaultKeyMask)
                 rid.SlotNum = 1;
-            int begin = rid.PageNum * header->slotNum + rid.SlotNum;
+            int begin = (rid.PageNum - 1) * header->slotNum + rid.SlotNum;
             int nextRecordSlot = firstOneBitFrom(begin);
             if(nextRecordSlot >= 0){
-                rid.PageNum = nextRecordSlot / header->slotNum;
-                rid.SlotNum = nextRecordSlot % header->slotNum;
+                rid.PageNum = nextRecordSlot / header->slotNum + 1;
+                rid.SlotNum = nextRecordSlot % header->slotNum + 1;
                 return true;
             }
             else
