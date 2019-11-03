@@ -32,17 +32,30 @@ int main() {
 	Header * header = new Header();
 	header->recordLenth = 10;
 	header->slotNum = (uint)PAGE_SIZE / header->recordLenth;
-	db->CreateTable("tb", header, "0123456789");
+	memcpy(header->attrName[0], "name", MAX_TABLE_NAME_LEN);
+	header->attrType[0] = DataType::CHAR;
+	header->attrLenth[0] = 10;
+	db->CreateTable("tb", header, "0123456789123");
 	
 	Table* table = db->OpenTable("tb");
 	table->DebugPrint();
-	RID* rid = table->InsertRecord("a record!!");
-	printf("The rid of inserted record: %u, %u\n", rid->GetPageNum(), rid->GetSlotNum());
+	char buf[10] = "record ";
+	for(int i = 0; i < 10; i++){
+		buf[7] = '0' + i;
+		RID* rid = table->InsertRecord(buf);
+		printf("The rid of inserted record: %u, %u\n", rid->GetPageNum(), rid->GetSlotNum());
+		delete rid;
+	}
 	db->CloseTable("tb");
 	table = db->OpenTable("tb");
 	table->DebugPrint();
+	Scanner* scanner = table->GetScanner([](const Record& rec){return true;});
+	Record* rec = nullptr;
+	while((rec = scanner->NextRecord()) != nullptr){
+		printf("record page=%d, slot=%d, content=%.*s\n", rec->GetRid()->GetPageNum(), rec->GetRid()->GetSlotNum(), 10, rec->GetData());
+	}
 	db->CloseTable("tb");
-	// db->DeleteTable("tb");
+	db->DeleteTable("tb");
 /*
 	MyBitMap::initConst();   //新加的初始化
 	FileManager* fm = new FileManager();

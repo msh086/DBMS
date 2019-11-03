@@ -41,9 +41,9 @@ class Table{
                 return (i << 3) + pos;
             }
         }
-        int pos = 0, remain = size - (fullByte << 3);
+        int pos = 0, remain = size & 7;
         char msb = 128;
-        src += (fullByte << 3);
+        src += fullByte;
         while((src[0] & msb) && pos < remain){
             pos++;
             msb >>= 1;
@@ -133,7 +133,7 @@ class Table{
          * Return a COPY of the record of rid
          * The memory of return value needs to be manually released
         */
-        Record* GetRecord(const RID& rid){
+        Record* GetRecord(const RID& rid){ // TODO : don't allocate memory here
             if(rid.GetPageNum() == 0){
                 printf("In Table::GetRecord, trying to get record from the header page\n");
                 return nullptr;
@@ -151,13 +151,14 @@ class Table{
          * Return the RID of the inserted record
          * The memory of return value needs to be manually released
         */
-        RID* InsertRecord(const char* data){
+        RID* InsertRecord(const char* data){ // TODO : don't allocate memory here
             //updating the header
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
             int firstEmptySlot = firstZeroBit();
             setBit(firstEmptySlot);
             header->recordNum++;
-            header->exploitedNum++;
+            if(firstEmptySlot == header->exploitedNum)
+                header->exploitedNum++;
             header->ToString(headerBuf);//TODO : write back only the changed parts
             bpm->access(headerIdx);
             bpm->markDirty(headerIdx);
@@ -207,21 +208,18 @@ class Table{
         }
 
         /**
-         * Get the RID of the first record after rid (included), return success/failure
+         * Get the RID of the first record after rid (excluded), return success/failure
         */
         bool NextRecord(RID& rid){
             if(rid.PageNum == 0){
                 printf("In Table::NextRecord, pageNum is 0\n");
                 return false;
             }
-            // forbid user to get the default record if exists
-            if(rid.PageNum == 1 && rid.SlotNum == 0 && header->defaultKeyMask)
-                rid.SlotNum = 1;
-            int begin = (rid.PageNum - 1) * header->slotNum + rid.SlotNum;
+            int begin = (rid.PageNum - 1) * header->slotNum + rid.SlotNum + 1; // start from the next position
             int nextRecordSlot = firstOneBitFrom(begin);
             if(nextRecordSlot >= 0){
-                rid.PageNum = nextRecordSlot / header->slotNum + 1;
-                rid.SlotNum = nextRecordSlot % header->slotNum + 1;
+                rid.PageNum = nextRecordSlot / header->slotNum + 1; // skip the header page
+                rid.SlotNum = nextRecordSlot % header->slotNum;
                 return true;
             }
             else

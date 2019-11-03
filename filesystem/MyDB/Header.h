@@ -1,6 +1,6 @@
 #ifndef HEADER_H
 #define HEADER_H
-#include "../utils/pagedef.h"
+#include "../RM/DataType.h"
 #include <cstring>
 /**
  * The class corresponding to the header page in a table.
@@ -12,7 +12,7 @@ class Header{
         uint recordNum = 0;
         uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
         uint nullMask = 0;
-        uint primaryKeyMask = 0;
+        uint primaryKeyMask = 0; // A cluster primary key can include multiple columns
         uint foreignKeyMask = 0;
         uint defaultKeyMask = 0; // The template record for `default` is always stored as (1, 0) and is invisible & inchangable by query
         // For attrLenth, if we store varchar locally, each element will take a uint
@@ -50,8 +50,24 @@ class Header{
             printf("\n");
             printf("***attrType:\n    ");
             for(int i = 0; i < MAX_COL_NUM; i ++)
-                printf("(%d, %u) ", i, attrType[i]);
+                printf("(%d, %s) ", i, DataType::NameofType(attrType[i]));
             printf("\n");
+            printf("***attriName:\n    ");
+            for(int i = 0; i < MAX_COL_NUM; i ++)
+                printf("(%d, %.*s) ", i, MAX_ATTRI_NAME_LEN, attrName[i]);
+            printf("\n");
+            printf("***foreignTable:\n    ");
+            for(int i = 0; i < MAX_COL_NUM; i++)
+                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, foreignTable[i]);
+            printf("\n");
+            printf("***foreignKeyID:\n    ");
+            for(int i = 0; i < MAX_COL_NUM; i++)
+                printf("(%d, %d) ", i, foreignKeyID[i]);
+            printf("\n");
+            printf("***refTables:\n    ");
+            for(int i = 0; i < MAX_FOREIGN_TIME; i++)
+                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, refTables[i]);
+            printf("\n<<<End of table\n");
             // TODO: finish debug print
         }
 #endif

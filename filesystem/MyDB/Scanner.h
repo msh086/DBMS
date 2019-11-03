@@ -10,7 +10,7 @@ class Scanner{
     Table* table = nullptr;
     bool (*demand)(const Record& record) = nullptr;
 
-    RID* rid = new RID(0, 0);
+    RID* rid = new RID(1, 1);
     Record* record = nullptr;
 
     // A scanner can only be instantiated from a table
@@ -24,9 +24,10 @@ class Scanner{
         */
         Record* NextRecord(){
             while(table->NextRecord(*rid)){
-                record = table->GetRecord(*rid);
+                record = table->GetRecord(*rid); // Memory needs to be released
                 if(demand(*record))
                     return record;
+                delete record;
                 record = nullptr;
             }
             return record = nullptr;
