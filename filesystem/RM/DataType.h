@@ -3,7 +3,7 @@
 #include "../utils/pagedef.h"
 class DataType{
     public:
-        const static char NONE = 0,
+        const static uchar NONE = 0,
             FLOAT = 1,
             BIGINT = 2,
             CHAR = 3,
@@ -13,12 +13,12 @@ class DataType{
             INT = 7;
 
 #ifdef DEBUG
-        static const char* NameofType(int type){
+        static const uchar* NameofType(int type){
             const char* ans;
             switch (type)
             {
             case 0:
-                ans = "";
+                ans = ""; // none, the default value
                 break;
             case 1:
                 ans = "float";
@@ -45,7 +45,7 @@ class DataType{
                 ans = "undefined";
                 break;
             }
-            return ans;
+            return reinterpret_cast<const uchar*>(ans);
         }
 #endif
 };

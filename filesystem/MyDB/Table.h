@@ -8,12 +8,12 @@ class Scanner;
 
 class Table{
     Header* header;
-    char* headerBuf;
+    uchar* headerBuf;
     int fid;
     int headerIdx;
     char tablename[MAX_TABLE_NAME_LEN + 1] = "";
     int tmpIdx = 0;
-    char* tmpBuf = nullptr;
+    uchar* tmpBuf = nullptr;
 
     static FileManager* fm;
     static BufPageManager* bpm;
@@ -26,14 +26,14 @@ class Table{
      * The index starts from 0
     */
     int firstZeroBit(){
-        char* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->lenth;
         int size = header->exploitedNum;
         int fullByte = size >> 3;
-        char allOnes = 255;
+        uchar allOnes = 255;
         for(int i = 0; i < fullByte; i++){
             if(src[i] != allOnes){
                 int pos = 0;
-                char msb = 128;
+                uchar msb = 128;
                 while(src[i] & msb){
                     pos++;
                     msb >>= 1;
@@ -42,7 +42,7 @@ class Table{
             }
         }
         int pos = 0, remain = size & 7;
-        char msb = 128;
+        uchar msb = 128;
         src += fullByte;
         while((src[0] & msb) && pos < remain){
             pos++;
@@ -61,8 +61,8 @@ class Table{
         int endByte = header->exploitedNum >> 3, endBit = header->exploitedNum & 7;
         if(startByte > endByte)
             return -1;
-        char* src = headerBuf + header->lenth;
-        char allOnes = 255;
+        uchar* src = headerBuf + header->lenth;
+        uchar allOnes = 255;
         //[(startBytes, startBit), (startByte, endBit))
         if(startByte == endByte){
             int prober = 128 >> startBit;
@@ -104,13 +104,13 @@ class Table{
     }
 
     void setBit(int pos){
-        char* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->lenth;
         int bytes = pos >> 3, remain = pos & 7;
         (*(src + bytes)) |= (128 >> remain);
     }
 
     void clearBit(int pos){
-        char* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->lenth;
         int bytes = pos >> 3, remain = pos & 7;
         (*(src + bytes)) &= ~(128 >> remain);
     }
@@ -130,7 +130,7 @@ class Table{
         void DebugPrint(){
             header->DebugPrint();
             printf("***bitmap:\n    ");
-            char* src = headerBuf + header->lenth;
+            uchar* src = headerBuf + header->lenth;
             int bitmapSize = (header->exploitedNum + 7) >> 3;
             for(int i = 0; i < bitmapSize; i++)
                 printf("(%d, %hhu) ", i, src[i]);
@@ -156,8 +156,8 @@ class Table{
             }
             tmpBuf = bpm->reusePage(fid, rid.GetPageNum(), tmpIdx, tmpBuf);
             bpm->access(tmpIdx);
-            ans->data = new char[header->recordLenth];
-            memcpy(ans->data, ((char*)tmpBuf) + rid.GetSlotNum() * header->recordLenth, header->recordLenth);
+            ans->data = new uchar[header->recordLenth];
+            memcpy(ans->data, ((uchar*)tmpBuf) + rid.GetSlotNum() * header->recordLenth, header->recordLenth);
             ans->id = new RID(rid.GetPageNum(), rid.GetSlotNum());
             return ans;
         }
@@ -166,7 +166,7 @@ class Table{
          * Return the RID of the inserted record
          * No dynamic memory will be allocated
         */
-        RID* InsertRecord(const char* data, RID* rid){
+        RID* InsertRecord(const uchar* data, RID* rid){
             //updating the header
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
             int firstEmptySlot = firstZeroBit();

@@ -112,17 +112,17 @@ public:
 	/**
 	 * Similar to getPage, except that you have a suspect for index
 	 * Faster than getPage sometimes and won't be noticably slower than it in any occasion
-	 * Use char* instead of uint* for argument and return value
+	 * Use uchar* instead of uint* for argument and return value
 	*/
-	char* reusePage(int fileID, int pageID, int& index, char* buf){
+	uchar* reusePage(int fileID, int pageID, int& index, uchar* buf){
 		if(buf == nullptr)
-			return (char*)getPage(fileID, pageID, index);
+			return (uchar*)getPage(fileID, pageID, index);
 		int tmpFID, tmpPID;
 		getKey(index, tmpFID, tmpPID);
 		if(tmpFID == fileID && tmpPID == pageID)
 			return buf;
 		else
-			return (char*)getPage(fileID, pageID, index);
+			return (uchar*)getPage(fileID, pageID, index);
 	}
 	/*
 	 * @函数名access

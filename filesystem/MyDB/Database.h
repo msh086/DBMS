@@ -41,7 +41,7 @@ class Database{
 
 
     public:
-        void CreateTable(const char* tablename, Header* header, const char* defaultRecord){
+        void CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
             //TODO : check on header validity?
             bool createret = fm->createFile(tablename);
             if(!createret){
@@ -54,12 +54,12 @@ class Database{
                 printf("In Database::CreateTable, cannot open file\n");
                 return;
             }
-            char* buffer = new char[PAGE_SIZE]{};
+            uchar* buffer = new uchar[PAGE_SIZE]{};
             //handle default record, which always exists not matter the value of defaultKeyMask
             buffer[header->lenth] = 128; // manually set the first bit in bitmap to 1
             header->recordNum = 1;
             header->exploitedNum = 1;
-            char* defaultBuf = new char[PAGE_SIZE]{};
+            uchar* defaultBuf = new uchar[PAGE_SIZE]{};
             memcpy(defaultBuf, defaultRecord, header->recordLenth);
             int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
             delete[] defaultBuf;
@@ -104,7 +104,7 @@ class Database{
             ans->header->FromString(headerBuf);
             ans->fid = fid;
             ans->headerIdx = index;
-            ans->headerBuf = (char*)headerBuf;
+            ans->headerBuf = (uchar*)headerBuf;
             memcpy(ans->tablename, tablename, strlen(tablename));
             activeTables[activeTableNum++] = ans;
             return ans;

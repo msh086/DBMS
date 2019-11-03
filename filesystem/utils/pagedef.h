@@ -72,7 +72,9 @@
 typedef unsigned int* BufType;
 typedef unsigned int uint;
 typedef unsigned short ushort;
-typedef unsigned char uchar;
+// use uchar instead of char when manipulating bytes for efficiency and safety pls
+// use char only when dealing with strings
+typedef unsigned char uchar; 
 typedef unsigned long long ull;
 typedef long long ll;
 typedef double db;

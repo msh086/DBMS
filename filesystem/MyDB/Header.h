@@ -25,11 +25,11 @@ class Header{
         // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 1 + 1
         // While in {tablename}, only the RID of the head record in {tablename}_VAR is stored
         uint attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
-        char attrType[MAX_COL_NUM] = "";
-        char attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{""}};
-        char foreignTable[MAX_COL_NUM][MAX_TABLE_NAME_LEN] = {{""}};
-        char foreignKeyID[MAX_COL_NUM]="";
-        char refTables[MAX_FOREIGN_TIME][MAX_TABLE_NAME_LEN]={""};
+        uchar attrType[MAX_COL_NUM] = {0};
+        uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
+        uchar foreignTable[MAX_COL_NUM][MAX_TABLE_NAME_LEN] = {{0}};
+        uchar foreignKeyID[MAX_COL_NUM]={0};
+        uchar refTables[MAX_FOREIGN_TIME][MAX_TABLE_NAME_LEN]={0};
 
         const static int lenth = sizeof(uint) * (8 + MAX_COL_NUM) +
             MAX_COL_NUM * MAX_ATTRI_NAME_LEN +
@@ -90,7 +90,7 @@ class Header{
             memcpy(uintPtr, attrLenth, MAX_COL_NUM * sizeof(uint));
             uintPtr += MAX_COL_NUM;
 
-            char* charPtr = (char*)uintPtr;
+            uchar* charPtr = (uchar*)uintPtr;
             
             memcpy(charPtr, attrType, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;
@@ -120,7 +120,7 @@ class Header{
             memcpy(attrLenth, uintPtr, MAX_COL_NUM * sizeof(uint));
             uintPtr += MAX_COL_NUM;
 
-            char *charPtr = (char*)uintPtr;
+            uchar *charPtr = (uchar*)uintPtr;
 
             memcpy(attrType, charPtr, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;

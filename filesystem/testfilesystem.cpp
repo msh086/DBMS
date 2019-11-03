@@ -35,11 +35,11 @@ int main() {
 	memcpy(header->attrName[0], "name", MAX_TABLE_NAME_LEN);
 	header->attrType[0] = DataType::CHAR;
 	header->attrLenth[0] = 10;
-	db->CreateTable("tb", header, "0123456789123");
+	db->CreateTable("tb", header, reinterpret_cast<const uchar*>( "0123456789123"));
 	
 	Table* table = db->OpenTable("tb");
 	table->DebugPrint();
-	char buf[10] = "record ";
+	uchar buf[10] = "record ";
 	RID* rid = new RID();
 	for(int i = 0; i < 10; i++){
 		buf[7] = '0' + i;
@@ -51,7 +51,7 @@ int main() {
 	table = db->OpenTable("tb");
 	table->DebugPrint();
 	Scanner* scanner = table->GetScanner([](const Record& rec){
-			char* data = rec.GetData();
+			uchar* data = rec.GetData();
 			return data[7] >= '3' && data[7] <= '8';
 		});
 	Record* rec = new Record();

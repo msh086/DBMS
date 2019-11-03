@@ -6,14 +6,14 @@ class Table;
 class Record
 {
     private:
-        char* data=nullptr;
+        uchar* data=nullptr;
         RID* id=nullptr;
-        void SetAttr(char* data, RID* id){
+        void SetAttr(uchar* data, RID* id){
             data=data;
             id=id;
         }
     public:
-        char* GetData()const{
+        uchar* GetData()const{
             return data;
         }
         RID* GetRid()const{
