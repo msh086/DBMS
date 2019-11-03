@@ -10,7 +10,7 @@ class Scanner{
     Table* table = nullptr;
     bool (*demand)(const Record& record) = nullptr;
 
-    RID* rid = new RID(1, 1);
+    RID* rid = new RID(1, 0);
     Record* record = nullptr;
 
     // A scanner can only be instantiated from a table
@@ -21,16 +21,16 @@ class Scanner{
     public:
         /**
          * Return the next record that meets requirements 'demand', or nullptr if none is found
+         * No memory is dynamically allocated
         */
-        Record* NextRecord(){
+        Record* NextRecord(Record* rec){
             while(table->NextRecord(*rid)){
-                record = table->GetRecord(*rid); // Memory needs to be released
+                record = table->GetRecord(*rid, rec); // Memory needs to be released
                 if(demand(*record))
                     return record;
-                delete record;
                 record = nullptr;
             }
-            return record = nullptr;
+            return nullptr;
         }
 
         ~Scanner(){

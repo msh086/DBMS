@@ -70,8 +70,9 @@ class Header{
             printf("***refTables:\n    ");
             for(int i = 0; i < MAX_FOREIGN_TIME; i++)
                 printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, refTables[i]);
-            printf("\n<<<End of table\n");
-            // TODO: finish debug print
+            printf("\n");
+            printf("<<<End of table\n");
+            // TODO: more information?
         }
 #endif
 

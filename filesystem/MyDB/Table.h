@@ -115,10 +115,26 @@ class Table{
         (*(src + bytes)) &= ~(128 >> remain);
     }
 
+    uint RIDtoUint(const RID* rid){
+        return (rid->PageNum - 1) * header->slotNum + rid->SlotNum;
+    }
+
+    RID* UintToRID(const uint& value, RID* rid){
+        rid->PageNum = value / header->slotNum + 1; // RID::pageNum starts from 1
+        rid->SlotNum = value % header->slotNum;
+        return rid;
+    }
+
     public:
 #ifdef DEBUG
         void DebugPrint(){
             header->DebugPrint();
+            printf("***bitmap:\n    ");
+            char* src = headerBuf + header->lenth;
+            int bitmapSize = (header->exploitedNum + 7) >> 3;
+            for(int i = 0; i < bitmapSize; i++)
+                printf("(%d, %hhu) ", i, src[i]);
+            printf("\n");
         }
 #endif
 
@@ -164,12 +180,10 @@ class Table{
             // Deprecated: //// header->ToString(headerBuf);
             bpm->markDirty(headerIdx);
             //inserting the record
-            int page = firstEmptySlot / header->slotNum + 1, slot = firstEmptySlot % header->slotNum;
-            tmpBuf = bpm->reusePage(fid, page, tmpIdx, tmpBuf);
-            memcpy(tmpBuf + slot * header->recordLenth, data, header->recordLenth);
+            UintToRID(firstEmptySlot, rid);
+            tmpBuf = bpm->reusePage(fid, rid->PageNum, tmpIdx, tmpBuf);
+            memcpy(tmpBuf + rid->SlotNum * header->recordLenth, data, header->recordLenth);
             bpm->markDirty(tmpIdx);
-            rid->PageNum = page;
-            rid->SlotNum = slot;
             return rid;
         }
 
@@ -180,7 +194,7 @@ class Table{
             }
             //updating the header
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-            int slotNumber = rid.GetPageNum() * header->slotNum + rid.GetSlotNum();
+            int slotNumber = RIDtoUint(&rid);
             clearBit(slotNumber);
             if(slotNumber == header->exploitedNum - 1)
                 header->exploitedNum--;
@@ -221,11 +235,10 @@ class Table{
                 printf("In Table::NextRecord, pageNum is 0\n");
                 return false;
             }
-            int begin = (rid.PageNum - 1) * header->slotNum + rid.SlotNum + 1; // start from the next position
+            int begin = RIDtoUint(&rid) + 1; // start from the next position
             int nextRecordSlot = firstOneBitFrom(begin);
             if(nextRecordSlot >= 0){
-                rid.PageNum = nextRecordSlot / header->slotNum + 1; // skip the header page
-                rid.SlotNum = nextRecordSlot % header->slotNum;
+                UintToRID(nextRecordSlot, &rid);
                 return true;
             }
             else

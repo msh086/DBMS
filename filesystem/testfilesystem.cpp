@@ -43,7 +43,7 @@ int main() {
 	RID* rid = new RID();
 	for(int i = 0; i < 10; i++){
 		buf[7] = '0' + i;
-		RID* rid = table->InsertRecord(buf, rid);
+		table->InsertRecord(buf, rid);
 		printf("The rid of inserted record: %u, %u\n", rid->GetPageNum(), rid->GetSlotNum());
 	}
 	delete rid;
@@ -54,11 +54,21 @@ int main() {
 			char* data = rec.GetData();
 			return data[7] >= '3' && data[7] <= '8';
 		});
-	Record* rec = nullptr;
-	while((rec = scanner->NextRecord()) != nullptr){
+	Record* rec = new Record();
+	while(scanner->NextRecord(rec) != nullptr){
 		printf("record page=%d, slot=%d, content=%.*s\n", rec->GetRid()->GetPageNum(), rec->GetRid()->GetSlotNum(), 10, rec->GetData());
+		rec->GetData()[8] = '?';
+		table->UpdateRecord(*rec);
+		table->DeleteRecord(*rec->GetRid());
 	}
 	db->CloseTable("tb");
+	printf(">>> Updated table<<<\n");
+	table = db->OpenTable("tb");
+	delete scanner;
+	scanner = table->GetScanner([](const Record& rec){return true;});
+	while(scanner->NextRecord(rec) != nullptr){
+		printf("record page=%d, slot=%d, content=%.*s\n", rec->GetRid()->GetPageNum(), rec->GetRid()->GetSlotNum(), 10, rec->GetData());
+	}
 	db->DeleteTable("tb");
 /*
 	MyBitMap::initConst();   //新加的初始化

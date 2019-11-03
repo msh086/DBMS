@@ -5,6 +5,10 @@ class Table;
 class RID
 {
     private:
+        /**
+         * PageNum should store the physical page index, starting from 1 and reserving 0 for header page
+         * When converting a RID to total slot num, use (RID.PageNum - 1) * Header.slotNum + RID.slotNum
+        */
         unsigned int PageNum;
         unsigned int SlotNum;//The No.x record in a page
     public:
