@@ -7,6 +7,9 @@
 */
 class Header{
     public:
+
+        // if you add or remove any member here, update them in lenth, ToString, FromString and Table.h
+
         uint recordLenth = 0;// The length of a record in BYTES. Records should have length of full bytes. Equals to the sum of attrLenth
         uint slotNum = 0;// The number of records a page can hold, equals to PAGE_SIZE / recordLenth
         uint recordNum = 0;

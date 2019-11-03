@@ -40,16 +40,20 @@ int main() {
 	Table* table = db->OpenTable("tb");
 	table->DebugPrint();
 	char buf[10] = "record ";
+	RID* rid = new RID();
 	for(int i = 0; i < 10; i++){
 		buf[7] = '0' + i;
-		RID* rid = table->InsertRecord(buf);
+		RID* rid = table->InsertRecord(buf, rid);
 		printf("The rid of inserted record: %u, %u\n", rid->GetPageNum(), rid->GetSlotNum());
-		delete rid;
 	}
+	delete rid;
 	db->CloseTable("tb");
 	table = db->OpenTable("tb");
 	table->DebugPrint();
-	Scanner* scanner = table->GetScanner([](const Record& rec){return true;});
+	Scanner* scanner = table->GetScanner([](const Record& rec){
+			char* data = rec.GetData();
+			return data[7] >= '3' && data[7] <= '8';
+		});
 	Record* rec = nullptr;
 	while((rec = scanner->NextRecord()) != nullptr){
 		printf("record page=%d, slot=%d, content=%.*s\n", rec->GetRid()->GetPageNum(), rec->GetRid()->GetSlotNum(), 10, rec->GetData());

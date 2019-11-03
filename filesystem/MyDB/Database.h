@@ -88,6 +88,7 @@ class Database{
         /**
          * Open the table of tablename
          * NOTE: Trying to open an opened table may get a result of nullptr
+         * NOTE: DO NOT free the memory of Table by yourself, this is done by Database
         */
         Table* OpenTable(const char* tablename){
             int fid;
@@ -115,12 +116,13 @@ class Database{
                 bpm->close();
                 resetAllBuf();
                 int closeret = fm->closeFile(activeTables[index]->fid);
+                delete activeTables[index]; // free memory
                 removeTableAt(index);
                 if(closeret != 0)
                     printf("In Database::CloseTable, cannot close file\n");
             }
             else
-                printf("No such table\n");
+                printf("No table named %.*s\n", MAX_TABLE_NAME_LEN, tablename);
         }
 };
 BufPageManager* Database::bpm = BufPageManager::Instance();

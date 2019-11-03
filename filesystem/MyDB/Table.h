@@ -131,16 +131,15 @@ class Table{
         }
         /**
          * Return a COPY of the record of rid
-         * The memory of return value needs to be manually released
+         * Only properties in ANS is dynamically allocated, which will be freed with ANS
         */
-        Record* GetRecord(const RID& rid){ // TODO : don't allocate memory here
+        Record* GetRecord(const RID& rid, Record* ans){
             if(rid.GetPageNum() == 0){
                 printf("In Table::GetRecord, trying to get record from the header page\n");
                 return nullptr;
             }
             tmpBuf = bpm->reusePage(fid, rid.GetPageNum(), tmpIdx, tmpBuf);
             bpm->access(tmpIdx);
-            Record* ans = new Record();
             ans->data = new char[header->recordLenth];
             memcpy(ans->data, ((char*)tmpBuf) + rid.GetSlotNum() * header->recordLenth, header->recordLenth);
             ans->id = new RID(rid.GetPageNum(), rid.GetSlotNum());
@@ -149,9 +148,9 @@ class Table{
 
         /**
          * Return the RID of the inserted record
-         * The memory of return value needs to be manually released
+         * No dynamic memory will be allocated
         */
-        RID* InsertRecord(const char* data){ // TODO : don't allocate memory here
+        RID* InsertRecord(const char* data, RID* rid){
             //updating the header
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
             int firstEmptySlot = firstZeroBit();
@@ -159,16 +158,19 @@ class Table{
             header->recordNum++;
             if(firstEmptySlot == header->exploitedNum)
                 header->exploitedNum++;
-            header->ToString(headerBuf);//TODO : write back only the changed parts
-            bpm->access(headerIdx);
+            //* Update this when you need to change header's structure
+            ((uint*)headerBuf)[2] = header->recordNum;
+            ((uint*)headerBuf)[3] = header->exploitedNum;
+            // Deprecated: //// header->ToString(headerBuf);
             bpm->markDirty(headerIdx);
             //inserting the record
             int page = firstEmptySlot / header->slotNum + 1, slot = firstEmptySlot % header->slotNum;
             tmpBuf = bpm->reusePage(fid, page, tmpIdx, tmpBuf);
             memcpy(tmpBuf + slot * header->recordLenth, data, header->recordLenth);
-            bpm->access(tmpIdx);
             bpm->markDirty(tmpIdx);
-            return new RID(page, slot);
+            rid->PageNum = page;
+            rid->SlotNum = slot;
+            return rid;
         }
 
         void DeleteRecord(const RID& rid){
@@ -183,12 +185,17 @@ class Table{
             if(slotNumber == header->exploitedNum - 1)
                 header->exploitedNum--;
             header->recordNum--;
-            header->ToString(headerBuf);//TODO : write back only the changed parts
-            bpm->access(headerIdx);
+            //* Update this when you need to change header's structure
+            ((uint*)headerBuf)[2] = header->recordNum;
+            ((uint*)headerBuf)[3] = header->exploitedNum;
+            // Deprecated: ////header->ToString(headerBuf);
             bpm->markDirty(headerIdx);
             //no need to clear the memory
         }
 
+        /**
+         * Set the record of the corresponding RID to record
+        */
         void UpdateRecord(const Record& record){
             if(record.id->PageNum == 0){
                 printf("In Table::UpdateRecord, trying to update a record from header page\n");
@@ -196,7 +203,6 @@ class Table{
             }
             tmpBuf = bpm->reusePage(fid, record.GetRid()->GetPageNum(), tmpIdx, tmpBuf);
             memcpy(tmpBuf + record.GetRid()->GetSlotNum() * header->recordLenth, record.GetData(), header->recordLenth);
-            bpm->access(tmpIdx);
             bpm->markDirty(tmpIdx);
         }
 
