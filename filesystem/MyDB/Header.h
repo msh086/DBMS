@@ -2,30 +2,34 @@
 #define HEADER_H
 #include "../RM/DataType.h"
 #include <cstring>
+#include "BaseHeader.h"
 /**
  * The class corresponding to the header page in a table.
 */
-class Header{
+class Header : public BaseHeader{
     public:
 
         // if you add or remove any member here, update them in lenth, ToString, FromString and Table.h
 
-        uint recordLenth = 0;// The length of a record in BYTES. Records should have length of full bytes. Equals to the sum of attrLenth
-        uint slotNum = 0;// The number of records a page can hold, equals to PAGE_SIZE / recordLenth
-        uint recordNum = 0;
-        uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
-        uint nullMask = 0;
+        // uint recordLenth = 0;// The length of a record in BYTES. Records should have length of full bytes. Equals to the sum of attrLenth
+        // uint slotNum = 0;// The number of records a page can hold, equals to PAGE_SIZE / recordLenth
+        // uint recordNum = 0;
+        // uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
+        // uint nullMask = 0;
         uint primaryKeyMask = 0; // A cluster primary key can include multiple columns
         uint foreignKeyMask = 0;
         uint defaultKeyMask = 0; // The template record for `default` is always stored as (1, 0) and is invisible & inchangable by query
         // For attrLenth, if we store varchar locally, each element will take a uint
         // If we store varchar as a pointer to their real location, each element can be a char
-        // An idea: in another table {tablename}_VAR, break a varchar into parts of VARCHAR_FRAG_LEN bytes and store a varchar as a linked list
-        // A record in {tablename}_VAR looks like [(varchar fragment data), nextPage, nextSlot, length, isDefault].
-        // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 1 + 1
-        // While in {tablename}, only the RID of the head record in {tablename}_VAR is stored
-        uint attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
-        uchar attrType[MAX_COL_NUM] = {0};
+        // For varchar no longer than 255 bits, they can be stored in-place like chars.
+        // For varchar longer than this limit, we can do the following thing:
+        // In a global table VARCHAR_TB, break a varchar into parts of VARCHAR_FRAG_LEN bytes and store a varchar as a linked list
+        // A record in VARCHAR_TB looks like [(varchar fragment data), nextPage, nextSlot, length, isDefault].
+        // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 2 (8192B = 2^13, so length can be recorded in 14 bits; isDefault flag needs only one bit)
+        // While in {tablename}, only the RID of the head record in VARCHAR_TB is stored, which requires 8B
+        // We can reserve VARCHAR_DB as a privileged table name and throw an exception when user tries to create, access or delete it.
+        // uint attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
+        // uchar attrType[MAX_COL_NUM] = {0};
         uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
         uchar foreignTable[MAX_COL_NUM][MAX_TABLE_NAME_LEN] = {{0}};
         uchar foreignKeyID[MAX_COL_NUM]={0};
@@ -38,7 +42,7 @@ class Header{
             MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN;
 
 #ifdef DEBUG
-        void DebugPrint(){
+        void DebugPrint()override{
             printf("recordLenth = %u\n", recordLenth);
             printf("slotNum = %u\n", slotNum);
             printf("recordNum = %u\n", recordNum);
@@ -75,8 +79,11 @@ class Header{
             // TODO: more information?
         }
 #endif
+        int GetLenth()override{
+            return lenth;
+        }
 
-        void ToString(void* dst){
+        void ToString(void* dst) override {
             uint* uintPtr = (uint*)dst;
             uintPtr[0] = recordLenth;
             uintPtr[1] = slotNum;
@@ -106,7 +113,7 @@ class Header{
 
             memcpy(charPtr, refTables, MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN);
         }
-        void FromString(const void* src){
+        void FromString(const void* src) override{
             uint *uintPtr = (uint*)src;
             recordLenth = uintPtr[0];
             slotNum = uintPtr[1];

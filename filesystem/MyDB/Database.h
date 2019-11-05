@@ -41,7 +41,7 @@ class Database{
 
 
     public:
-        void CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
+        void CreateTable(const char* tablename, BaseHeader* header, const uchar* defaultRecord){
             //TODO : check on header validity?
             bool createret = fm->createFile(tablename);
             if(!createret){
@@ -56,7 +56,7 @@ class Database{
             }
             uchar* buffer = new uchar[PAGE_SIZE]{};
             //handle default record, which always exists not matter the value of defaultKeyMask
-            buffer[header->lenth] = 128; // manually set the first bit in bitmap to 1
+            buffer[header->GetLenth()] = 128; // manually set the first bit in bitmap to 1
             header->recordNum = 1;
             header->exploitedNum = 1;
             uchar* defaultBuf = new uchar[PAGE_SIZE]{};

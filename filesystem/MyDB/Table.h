@@ -1,13 +1,13 @@
 #ifndef TABLE_H
 #define TABLE_H
-#include "Header.h"
+#include "BaseHeader.h"
 #include "../RM/Record.h"
 #include "../bufmanager/BufPageManager.h"
 class Database;
 class Scanner;
 
 class Table{
-    Header* header;
+    BaseHeader* header;
     uchar* headerBuf;
     int fid;
     int headerIdx;
@@ -26,7 +26,7 @@ class Table{
      * The index starts from 0
     */
     int firstZeroBit(){
-        uchar* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->GetLenth();
         int size = header->exploitedNum;
         int fullByte = size >> 3;
         uchar allOnes = 255;
@@ -61,7 +61,7 @@ class Table{
         int endByte = header->exploitedNum >> 3, endBit = header->exploitedNum & 7;
         if(startByte > endByte)
             return -1;
-        uchar* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->GetLenth();
         uchar allOnes = 255;
         //[(startBytes, startBit), (startByte, endBit))
         if(startByte == endByte){
@@ -104,13 +104,13 @@ class Table{
     }
 
     void setBit(int pos){
-        uchar* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->GetLenth();
         int bytes = pos >> 3, remain = pos & 7;
         (*(src + bytes)) |= (128 >> remain);
     }
 
     void clearBit(int pos){
-        uchar* src = headerBuf + header->lenth;
+        uchar* src = headerBuf + header->GetLenth();
         int bytes = pos >> 3, remain = pos & 7;
         (*(src + bytes)) &= ~(128 >> remain);
     }
@@ -130,7 +130,7 @@ class Table{
         void DebugPrint(){
             header->DebugPrint();
             printf("***bitmap:\n    ");
-            uchar* src = headerBuf + header->lenth;
+            uchar* src = headerBuf + header->GetLenth();
             int bitmapSize = (header->exploitedNum + 7) >> 3;
             for(int i = 0; i < bitmapSize; i++)
                 printf("(%d, %hhu) ", i, src[i]);

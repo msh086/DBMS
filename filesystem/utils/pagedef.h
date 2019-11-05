@@ -62,9 +62,9 @@
 */
 #define MAX_FOREIGN_TIME 30
 /**
- * Length of fragments to break varchar into
+ * Length of fragments to break varchar into, total length = 502 + 10 = 512 B
 */
-#define VARCHAR_FRAG_LEN 500
+#define VARCHAR_FRAG_LEN 502
 
 #define DEBUG // If this macro is set, debug methods are available
 
