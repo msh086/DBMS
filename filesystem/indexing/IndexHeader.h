@@ -9,6 +9,7 @@
 */
 class IndexHeader : public BaseHeader{
     public:
+        // Note: here the recordLenth indicates the size of a key, not including the ptr next to it
         // uint recordLenth = 0;
         //// uint slotNum = 0;
         // uint recordNum = 0;
@@ -17,14 +18,15 @@ class IndexHeader : public BaseHeader{
         uint internalOrder, leafOrder; // order of internal node and leaf node
         // capacity of internal node and leaf node
         // internalCap = (PAGE_SIZE - 5 + recordLenth) / (recordLenth + 4)
-        // leafCap = (PAGE_SIZE - 5) / (recordLenth + 8)
+        // leafCap = (PAGE_SIZE - 5 - 4) / (recordLenth + 8)
         uint internalCap, leafCap;
+        uint rootPage; // the pageID of root node
         // uint attrLenth[MAX_COL_NUM] = {0};
         // uchar attrType[MAX_COL_NUM] = {0};
         uchar tableName[MAX_TABLE_NAME_LEN] = {0}; // name of the table this index belongs to
         uchar indexColID[MAX_COL_NUM] = {0}; // the id of the indexed columns
 
-        const static int lenth = sizeof(uint) * (7 + MAX_COL_NUM) +
+        const static int lenth = sizeof(uint) * (8 + MAX_COL_NUM) +
             MAX_TABLE_NAME_LEN + 
             MAX_COL_NUM * 2;
         
@@ -41,7 +43,8 @@ class IndexHeader : public BaseHeader{
             uintPtr[4] = leafOrder;
             uintPtr[5] = internalCap;
             uintPtr[6] = leafCap;
-            uintPtr += 7;
+            uintPtr[7] = rootPage;
+            uintPtr += 8;
             memcpy(uintPtr, attrLenth, MAX_COL_NUM * sizeof(uint));
             uintPtr += MAX_COL_NUM;
 
@@ -65,7 +68,8 @@ class IndexHeader : public BaseHeader{
             leafOrder = uintPtr[4];
             internalCap = uintPtr[5];
             leafCap = uintPtr[6];
-            uintPtr += 7;
+            rootPage = uintPtr[7];
+            uintPtr += 8;
             memcpy(attrLenth, uintPtr, MAX_COL_NUM * sizeof(uint));
             uintPtr += MAX_COL_NUM;
 

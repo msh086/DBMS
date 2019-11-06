@@ -245,6 +245,10 @@ class Table{
                 return false;
         }
 
+        int FileID(){
+            return fid;
+        }
+
         Scanner* GetScanner(bool (*demand)(const Record& record));
 
         friend class Database;    
