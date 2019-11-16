@@ -20,11 +20,6 @@ class BplusTreeNode{
         uchar* data; // 8192B of data
         BplusTreeNode* parent;
 
-        BplusTreeNode(BplusTree* tree, int fid){
-            this->tree = tree;
-            this->fid = fid;
-        }
-
         // check if data is still in buffer
         void checkBuffer(){
             data = bpm->reusePage(fid, page, bufIdx, data);
@@ -32,6 +27,8 @@ class BplusTreeNode{
     public:
         uchar type = 0; // 0 for Internal node, 1 for Leaf node
         uint size = 0; // number of elements in the node
+
+        // In the type byte of the page, 0 also represents internal and 1 represents leaf
         const static uchar Internal = 0, Leaf = 1;
         // Low level APIs
 
@@ -44,10 +41,10 @@ class BplusTreeNode{
         // Return the key and data pointer at pos, only for leaf nodes
         uchar* KeyData(int pos);
         /**
-         * Find the first element >= data.
+         * Find the first element > data.
          * @return The index of the found element, it will be 'BplusTreeNode.size' if data is the largest one
         */
-        int findFirstEG(const uchar* data);
+        int findFirstGreater(const uchar* data);
 
         // Slightly higher level APIs
 
@@ -57,10 +54,6 @@ class BplusTreeNode{
         void InsertNodePtrAt(int pos, uint pageID);
         // Insert a data pointer at pos, only for leaf nodes
         void InsertDataPtrAt(int pos, uchar* element, const RID& rid);
-        // load an existing treenode from storage into memory
-        static BplusTreeNode* GetTreeNode(int page, BplusTree* tree, int fid);
-        // create a treenode
-        static BplusTreeNode* CreateTreeNode(BplusTree* tree, int fid);
         friend class BplusTree;
 };
 

@@ -447,7 +447,23 @@ class DataType{
             return true;
         }
 
-        static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const uchar* lengths, uint nullMask, int colNum){
+        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
+            return noLessThan(left, right, type, length, nullable) && !eq(left, right, type, length, nullable);
+        }
+
+        // why not use noLessThanArr && !eqArr ? Because it is not efficient
+        static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
+            for(int i = 0; i < colNum; i++){
+                if(!greaterThan(left, right, types[i], lengths[i], nullMask & (128 >> i)));
+                    return false;
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                left += length;
+                right += length;
+            }
+            return true;
+        }
+
+        static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
                 if(!eq(left, right, types[i], lengths[i], nullMask & (128 >> i)));
                     return false;
