@@ -29,8 +29,28 @@ class BplusTree{
         int headerIdx;
         uchar* data = nullptr;
         static BufPageManager* bpm;
-        Table* table; // creating & deleting nodes needs to be done through table
+        Table* table; // the table that stores all B+ tree nodes, creating & deleting nodes needs to be done through table
+
     public:
+        // create a B+ tree
+        BplusTree(Table* table, IndexHeader* header){
+            this->table = table;
+            this->fid = table->FileID();
+
+            header->internalCap = (PAGE_SIZE - 5 + header->recordLenth) / (header->recordLenth + 4);
+            header->leafCap = (PAGE_SIZE - 9) / (header->recordLenth + 8);
+
+            this->header = header;
+            uchar* tmp = new uchar[PAGE_SIZE]{0};
+            header->ToString(tmp);
+            RID* rid = new RID();
+            table->InsertRecord(tmp, rid);
+            page = rid->GetPageNum();
+            delete[] tmp;
+            data = (uchar*)bpm->getPage(fid, page, headerIdx);
+            // TODO: root node
+        }
+        // load an existing B+ tree
         BplusTree(Table* table, int pageID){
             this->table = table;
             this->fid = table->FileID();
@@ -38,9 +58,6 @@ class BplusTree{
             data = (uchar*)bpm->getPage(fid, page, headerIdx);
             header = new IndexHeader();
             header->FromString(data);
-            if(header->rootPage == 0){
-                table->InsertRecord()
-            }
         }
 
         void UpdateRecordNum(){
@@ -76,6 +93,13 @@ uchar* BplusTreeNode::LeafPtr(){
 uchar* BplusTreeNode::KeyData(int pos){
     checkBuffer();
     return data + 5 + pos * (tree->header->recordLenth + 8);
+}
+
+bool BplusTree::_search(const uchar* data, RID* rid, int& page, int& pos){
+    BplusTreeNode* cur = root;
+    while(cur->type == BplusTreeNode::Internal){
+        // TODO
+    }
 }
 
 

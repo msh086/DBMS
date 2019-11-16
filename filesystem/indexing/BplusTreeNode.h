@@ -18,6 +18,7 @@ class BplusTreeNode{
         int page;
         int bufIdx;
         uchar* data; // 8192B of data
+        BplusTreeNode* parent;
 
         // check if data is still in buffer
         void checkBuffer(){
@@ -37,7 +38,11 @@ class BplusTreeNode{
         uchar* LeafPtr();
         // Return the key and data pointer at pos, only for leaf nodes
         uchar* KeyData(int pos);
-
+        /**
+         * Find the first element >= data, store its pos into @ref pos. It will be -1 if the node is empty
+         * @return Whether the found element = data
+        */
+        bool findFirstEG(const uchar* data, int& pos);
 
         // Slightly higher level APIs
 

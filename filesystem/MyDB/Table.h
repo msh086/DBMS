@@ -1,6 +1,6 @@
 #ifndef TABLE_H
 #define TABLE_H
-#include "BaseHeader.h"
+#include "Header.h"
 #include "../RM/Record.h"
 #include "../bufmanager/BufPageManager.h"
 class Database;

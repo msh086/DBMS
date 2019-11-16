@@ -23,11 +23,22 @@
 #include "MyDB/Scanner.h"
 #include "MyDB/Header.h"
 #include "MyDB/Database.h"
+#include "RM/DataType.h"
 #include <iostream>
 
 using namespace std;
 
 int main() {
+	uchar dst[17] = {0};
+	memset(dst, 0, 17);
+	DataType::floatToBin(true, "123456", "654321", dst, 12, 6); // p - s <= l <= p, r <= p - l -> ok
+	DataType::floatToBin(true, "123456", "654321", dst, 5, 0); // l > p -> overflow
+	DataType::floatToBin(true, "123456", "654321", dst, 15, 8); // l < p - s, r <= s -> ok
+	DataType::floatToBin(true, "123456", "654321", dst, 15, 3); // l < p - s, r > s -> round
+	DataType::floatToBin(true, "123456", "654321", dst, 8, 4); // p - s <= l <= p, r > p - l -> round
+	return 0;
+
+
 	Database* db = new Database();
 	Header * header = new Header();
 	header->recordLenth = 10;

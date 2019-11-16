@@ -21,15 +21,16 @@ class Header : public BaseHeader{
         uint defaultKeyMask = 0; // The template record for `default` is always stored as (1, 0) and is invisible & inchangable by query
         // For attrLenth, if we store varchar locally, each element will take a uint
         // If we store varchar as a pointer to their real location, each element can be a char
-        // For varchar no longer than 255 bits, they can be stored in-place like chars.
+        // For varchar no longer than 254 bytes, they can be stored in-place like chars, the length of the attribute is its actual size(0~254)
         // For varchar longer than this limit, we can do the following thing:
         // In a global table VARCHAR_TB, break a varchar into parts of VARCHAR_FRAG_LEN bytes and store a varchar as a linked list
         // A record in VARCHAR_TB looks like [(varchar fragment data), nextPage, nextSlot, length, isDefault].
         // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 2 (8192B = 2^13, so length can be recorded in 14 bits; isDefault flag needs only one bit)
         // While in {tablename}, only the RID of the head record in VARCHAR_TB is stored, which requires 8B
+        // a value of 255 in attrLenth indicates a varchar no shorter than 255 bytes
         // We can reserve VARCHAR_DB as a privileged table name and throw an exception when user tries to create, access or delete it.
-        // uint attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
-        // uchar attrType[MAX_COL_NUM] = {0};
+        // uint attrLenth[MAX_COL_NUM] = {0}; 
+        // uchar attrType[MAX_COL_NUM] = {0}; // number of attributes in the table = positive values in this array
         uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
         uchar foreignTable[MAX_COL_NUM][MAX_TABLE_NAME_LEN] = {{0}};
         uchar foreignKeyID[MAX_COL_NUM]={0};
