@@ -15,18 +15,18 @@ class IndexHeader : public BaseHeader{
         // uint recordNum = 0;
         //// uint exploitedNum = 0;
         // uint nullMask = 0;
-        uint internalOrder, leafOrder; // order of internal node and leaf node
-        // capacity of internal node and leaf node
+
+        // capacity of internal node and leaf node (in the number of stored subtrees or RIDs)
         // internalCap = (PAGE_SIZE - 5 + recordLenth) / (recordLenth + 4)
         // leafCap = (PAGE_SIZE - 5 - 4) / (recordLenth + 8)
-        uint internalCap, leafCap;
+        uint internalCap, leafCap; // order of the internal node and leaf node
         uint rootPage; // the pageID of root node
         // uint attrLenth[MAX_COL_NUM] = {0};
         // uchar attrType[MAX_COL_NUM] = {0};
         uchar tableName[MAX_TABLE_NAME_LEN] = {0}; // name of the table this index belongs to
         uchar indexColID[MAX_COL_NUM] = {0}; // the id of the indexed columns
 
-        const static int lenth = sizeof(uint) * (8 + MAX_COL_NUM) +
+        const static int lenth = sizeof(uint) * (6 + MAX_COL_NUM) +
             MAX_TABLE_NAME_LEN + 
             MAX_COL_NUM * 2;
         
@@ -39,12 +39,10 @@ class IndexHeader : public BaseHeader{
             uintPtr[0] = recordLenth; // length of a key
             uintPtr[1] = recordNum; // number of elements in all leaf nodes
             uintPtr[2] = nullMask; // nullable attributes need an extra byte to record if it is null. null is treated as the smallest value in cmp
-            uintPtr[3] = internalOrder;
-            uintPtr[4] = leafOrder;
-            uintPtr[5] = internalCap;
-            uintPtr[6] = leafCap;
-            uintPtr[7] = rootPage;
-            uintPtr += 8;
+            uintPtr[3] = internalCap;
+            uintPtr[4] = leafCap;
+            uintPtr[5] = rootPage;
+            uintPtr += 6;
             memcpy(uintPtr, attrLenth, MAX_COL_NUM * sizeof(uint));
             uintPtr += MAX_COL_NUM;
 
@@ -64,12 +62,10 @@ class IndexHeader : public BaseHeader{
             recordLenth = uintPtr[0];
             recordNum = uintPtr[1];
             nullMask = uintPtr[2];
-            internalOrder = uintPtr[3];
-            leafOrder = uintPtr[4];
-            internalCap = uintPtr[5];
-            leafCap = uintPtr[6];
-            rootPage = uintPtr[7];
-            uintPtr += 8;
+            internalCap = uintPtr[3];
+            leafCap = uintPtr[4];
+            rootPage = uintPtr[5];
+            uintPtr += 6;
             memcpy(attrLenth, uintPtr, MAX_COL_NUM * sizeof(uint));
             uintPtr += MAX_COL_NUM;
 

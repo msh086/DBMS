@@ -31,6 +31,15 @@ class BplusTree{
         static BufPageManager* bpm;
         Table* table; // the table that stores all B+ tree nodes, creating & deleting nodes needs to be done through table
 
+        void CalcColNum(){
+            colNum = 0;
+            for(int i = 0; i < MAX_COL_NUM; i++)
+                if(header->attrType[i] != DataType::NONE)
+                    colNum++;
+                else
+                    break;
+        }
+
     public:
         // create a B+ tree
         BplusTree(Table* table, IndexHeader* header){
@@ -39,6 +48,8 @@ class BplusTree{
 
             header->internalCap = (PAGE_SIZE - 5 + header->recordLenth) / (header->recordLenth + 4);
             header->leafCap = (PAGE_SIZE - 9) / (header->recordLenth + 8);
+
+            CalcColNum();
 
             this->header = header;
             uchar* tmp = new uchar[PAGE_SIZE]{0};
@@ -58,6 +69,7 @@ class BplusTree{
             data = (uchar*)bpm->getPage(fid, page, headerIdx);
             header = new IndexHeader();
             header->FromString(data);
+            CalcColNum();
         }
 
         void UpdateRecordNum(){
@@ -67,6 +79,7 @@ class BplusTree{
         }
         IndexHeader* header = nullptr;
         BplusTreeNode* root = nullptr;
+        int colNum = 0;
         void Insert(const uchar* data, const RID& rid);
         bool Search(const uchar* data, const RID& rid);
         void Remove(const uchar* data, const RID& rid);
@@ -82,7 +95,7 @@ uchar* BplusTreeNode::KeyAt(int pos){
 
 uchar* BplusTreeNode::NodePtrAt(int pos){
     checkBuffer();
-    return data + 5 + (tree->header->internalOrder - 1) + pos * 4;
+    return data + 5 + (tree->header->internalCap - 1) * tree->header->recordLenth + pos * 4;
 }
 
 uchar* BplusTreeNode::LeafPtr(){
@@ -95,10 +108,24 @@ uchar* BplusTreeNode::KeyData(int pos){
     return data + 5 + pos * (tree->header->recordLenth + 8);
 }
 
+int BplusTreeNode::findFirstEG(const uchar* data){
+    for(int i = 0; i < size; i++){
+        checkBuffer();
+        uchar* cmpData = this->data;
+        // TODO: binary search maybe ?
+        if(DataType::noLessThanArr(data, cmpData, tree->header->attrType, tree->header->attrLenth, tree->header->nullMask, tree->colNum)){
+            return i;
+        }
+    }
+    return size;
+}
+
 bool BplusTree::_search(const uchar* data, RID* rid, int& page, int& pos){
     BplusTreeNode* cur = root;
     while(cur->type == BplusTreeNode::Internal){
-        // TODO
+        // a leaf node may be under-sized, but an internal node will never be
+        int pos = cur->findFirstEG(data);
+        
     }
 }
 

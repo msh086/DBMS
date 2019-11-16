@@ -31,7 +31,7 @@ class DataType{
 
         // read 'bits' bits from src[byte], skipping the highest 'offset' bits
         // it is ensured that offset < 8 and bits > 0
-        static int readBits(uchar* src, int& byte, int& offset, int bits){ // Tested
+        static int readBits(const uchar* src, int& byte, int& offset, int bits){ // Tested
             int value = 0;
             while(bits > 0){
                 if(bits <= 8 - offset){ // read part of the current byte
@@ -55,6 +55,10 @@ class DataType{
             return value;
         }
 
+        static int lengthNumberic(int p){
+            int p_div_3 = p /3, p_mod_3 = p % 3;
+            return 1 + (p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0) + 7) / 8;
+        }
 
     public:
         const static uchar NONE = 0,
@@ -65,6 +69,38 @@ class DataType{
             NUMERIC = 5, // The same as decimal
             DATE = 6,
             INT = 7;
+        
+        // get the length of a type
+        static int lengthOf(uchar type, ushort length){
+            switch (type)
+            {
+            case NONE:
+                std::printf("trying to tell length of type NONE\n");
+                return 0;
+                break;
+            case FLOAT:
+                return 4;
+                break;
+            case BIGINT:
+                return 8;
+                break;
+            case DATE:
+                return 3;
+                break;
+            case INT:
+                return 4;
+                break;
+            case NUMERIC:{
+                int p = length >> 8;
+                int p_div_3 = p / 3, p_mod_3 = p % 3;
+                return p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0);
+                break;
+            }
+            default: // char, varchar don't have a fixed length
+                return length;
+                break;
+            }
+        }
 
 #ifdef DEBUG
         static const uchar* NameofType(int type){
@@ -104,12 +140,12 @@ class DataType{
 #endif
 
         // when both are null, return false(left < right)
-        static bool noLessThan(void* left, void* right, uchar type, uint length, bool nullable){
+        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
             if(type == NONE){
                 std::printf("Error: NONE type is not comparable");
                 return false;
             }
-            uchar* datal = (uchar*)left, *datar = (uchar*)right;
+            const uchar* datal = left, *datar = right;
             if(nullable){
                 if(datal[0] == 1) // left is null
                     return false;
@@ -132,7 +168,7 @@ class DataType{
                 break;
             }
             case CHAR:{ // 0-255 bytes
-                return strncmp(reinterpret_cast<char*>(datal), reinterpret_cast<char*>(datar), length);
+                return strncmp((const char*)datal, (const char*)datar, length);
                 break;
             }
             case NUMERIC:{ 
@@ -141,11 +177,11 @@ class DataType{
                 // p = 3k: bytes = ceiling(10k) + 1
                 // p = 3k + 1: bytes = ceiling(10k + 4) + 1
                 // p = 3k + 2: bytes = ceiling(10k + 7) + 1
-                // p, s are stored in length(uint)
+                // p, s are stored in length(ushort)
                 bool signl = datal[0] >> 7, signr = datar[0] >> 7;
                 if(signl != signr) // one is positive, the other is negative
                     return signl ? false : true; // signl == true -> left <= 0
-                uint p = length >> 16, s = length & ((1 << 16) - 1); // TODO: actually length takes 2 bytes, update it in Header too
+                uint p = length >> 8, s = length & ((1 << 8) - 1);
                 uchar bufferl[p] = {0};
                 uchar bufferr[p] = {0};
                 binToDigits(datal + 1, bufferl, p);
@@ -196,6 +232,55 @@ class DataType{
                 break;
             }
         }
+
+        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
+            const uchar* datal = left, *datar = right;
+            if(nullable){
+                bool nulll = datal[0] == 1, nullr = datar[0] == 1;
+                if(nulll && nullr)
+                    return true;
+                if(nulll || nullr)
+                    return false;
+                datal++; // skip null byte
+                datar++;
+            }
+            switch(type){
+                case NONE:
+                    std::printf("trying to compare type NONE\n");
+                    return false;
+                    break;
+                case FLOAT:
+                    return *(float*)datal == *(float*)datar;
+                    break;
+                case BIGINT:
+                    return *(ll*)datal == *(ll*)datar;
+                    break;
+                case CHAR:
+                    return strncmp((char*)datal, (char*)datar, length) == 0;
+                    break;
+                case VARCHAR:
+                    if(length <= 255){
+                        return strncmp((char*)datal, (char*)datar, length) == 0;
+                    }
+                    else{ // TODO: index on long varchar
+
+                    }
+                    break;
+                case NUMERIC:{
+                    int length = lengthNumberic(length >> 8);
+                    return strncmp((char*)datal, (char*)datar, length) == 0;
+                    break;
+                }
+                case DATE:
+                    return strncmp((char*)datal, (char*)datar, 3) == 0;
+                    break;
+                case INT:
+                    return *(int*)datal == *(int*)datar;
+                    break;
+            }
+        }
+
+
         // dotleft.dotright, if there is no dot, the string would be ""
         // the bindata includes the 1 byte header
         static void floatToBin(bool isNegative, const char* dotleft, const char* dotright, uchar* bindata, int p, int s){
@@ -301,7 +386,7 @@ class DataType{
 
         // convert binary data in bin to p decimal digits in dst
         // the bin doesn't include the 1 byte header, so this has nothing to do with s
-        static void binToDigits(uchar* bin, uchar* dst, int p){
+        static void binToDigits(const uchar* bin, uchar* dst, int p){
             int p_div_3 = p / 3, p_mod_3 = p % 3;
             memset(dst, 0, p);
             int ptr = 0;
@@ -344,11 +429,33 @@ class DataType{
         }
 
         // get a date from binary
-        static void binToDate(uchar* src, int& year, int& month, int& day){
+        static void binToDate(const uchar* src, int& year, int& month, int& day){
             int byte = 0, offset = 0;
             year = readBits(src, byte, offset, 14);
             month = readBits(src, byte, offset, 4);
             day = readBits(src, byte, offset, 5);
+        }
+
+        static bool noLessThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
+            for(int i = 0; i < colNum; i++){
+                if(!noLessThan(left, right, types[i], lengths[i], nullMask & (128 >> i)))
+                    return false;
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                left += length;
+                right += length;
+            }
+            return true;
+        }
+
+        static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const uchar* lengths, uint nullMask, int colNum){
+            for(int i = 0; i < colNum; i++){
+                if(!eq(left, right, types[i], lengths[i], nullMask & (128 >> i)));
+                    return false;
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                left += length;
+                right += length;
+            }
+            return true;
         }
 };
 

@@ -29,18 +29,19 @@ class Header : public BaseHeader{
         // While in {tablename}, only the RID of the head record in VARCHAR_TB is stored, which requires 8B
         // a value of 255 in attrLenth indicates a varchar no shorter than 255 bytes
         // We can reserve VARCHAR_DB as a privileged table name and throw an exception when user tries to create, access or delete it.
-        // uint attrLenth[MAX_COL_NUM] = {0}; 
+        // ushort attrLenth[MAX_COL_NUM] = {0}; // ? updated for ushort
         // uchar attrType[MAX_COL_NUM] = {0}; // number of attributes in the table = positive values in this array
         uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
         uchar foreignTable[MAX_COL_NUM][MAX_TABLE_NAME_LEN] = {{0}};
         uchar foreignKeyID[MAX_COL_NUM]={0};
         uchar refTables[MAX_FOREIGN_TIME][MAX_TABLE_NAME_LEN]={0};
 
-        const static int lenth = sizeof(uint) * (8 + MAX_COL_NUM) +
+        const static int lenth = sizeof(uint) * 8 +
+            sizeof(ushort) * MAX_COL_NUM +
             MAX_COL_NUM * MAX_ATTRI_NAME_LEN +
             MAX_COL_NUM * MAX_TABLE_NAME_LEN +
             MAX_COL_NUM * 2 +
-            MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN;
+            MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN; // updated for ushort
 
 #ifdef DEBUG
         void DebugPrint()override{
@@ -53,8 +54,8 @@ class Header : public BaseHeader{
             printf("foreignKeyMask = %u\n", foreignKeyMask);
             printf("defaultKeyMask = %u\n", defaultKeyMask);
             printf("***attrLenth:\n    ");
-            for(int i = 0; i < MAX_COL_NUM; i ++)
-                printf("(%d, %u) ", i, attrLenth[i]);
+            for(int i = 0; i < MAX_COL_NUM; i ++) // updated for ushort
+                printf("(%d, %hu) ", i, attrLenth[i]);
             printf("\n");
             printf("***attrType:\n    ");
             for(int i = 0; i < MAX_COL_NUM; i ++)
@@ -95,10 +96,10 @@ class Header : public BaseHeader{
             uintPtr[6] = foreignKeyMask;
             uintPtr[7] = defaultKeyMask;
             uintPtr += 8;
-            memcpy(uintPtr, attrLenth, MAX_COL_NUM * sizeof(uint));
-            uintPtr += MAX_COL_NUM;
 
-            uchar* charPtr = (uchar*)uintPtr;
+            uchar* charPtr = (uchar*)uintPtr; // updated for ushort
+            memcpy(charPtr, attrLenth, MAX_COL_NUM * sizeof(ushort));
+            charPtr += sizeof(ushort) * MAX_COL_NUM;
             
             memcpy(charPtr, attrType, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;
@@ -125,10 +126,10 @@ class Header : public BaseHeader{
             foreignKeyMask = uintPtr[6];
             defaultKeyMask = uintPtr[7];
             uintPtr += 8;
-            memcpy(attrLenth, uintPtr, MAX_COL_NUM * sizeof(uint));
-            uintPtr += MAX_COL_NUM;
 
-            uchar *charPtr = (uchar*)uintPtr;
+            uchar *charPtr = (uchar*)uintPtr; // updated for ushort
+            memcpy(attrLenth, charPtr, MAX_COL_NUM * sizeof(uint));
+            charPtr += sizeof(ushort) * MAX_COL_NUM;
 
             memcpy(attrType, charPtr, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;

@@ -13,7 +13,9 @@ class BaseHeader{
         uint recordNum = 0;
         uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
         uint nullMask = 0;
-        uint attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
+        // change to ushort
+        // attrLenth doesn't include the null byte
+        ushort attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
         uchar attrType[MAX_COL_NUM] = {0};
         virtual void ToString(void* dst) = 0;
         virtual void FromString(const void* src) = 0;
