@@ -29,13 +29,19 @@
 using namespace std;
 
 int main() {
-	uchar dst[17] = {0};
+	uchar dst[17] = {0}; // bin dst
+	uchar digits[38] = {0};
 	memset(dst, 0, 17);
 	DataType::floatToBin(true, "123456", "654321", dst, 12, 6); // p - s <= l <= p, r <= p - l -> ok
+	DataType::binToDigits(dst + 1, digits, 12);
 	DataType::floatToBin(true, "123456", "654321", dst, 5, 0); // l > p -> overflow
+	DataType::binToDigits(dst + 1, digits, 5);
 	DataType::floatToBin(true, "123456", "654321", dst, 15, 8); // l < p - s, r <= s -> ok
+	DataType::binToDigits(dst + 1, digits, 15);
 	DataType::floatToBin(true, "123456", "654321", dst, 15, 3); // l < p - s, r > s -> round
+	DataType::binToDigits(dst + 1, digits, 15);
 	DataType::floatToBin(true, "123456", "654321", dst, 8, 4); // p - s <= l <= p, r > p - l -> round
+	DataType::binToDigits(dst + 1, digits, 8);
 	return 0;
 
 

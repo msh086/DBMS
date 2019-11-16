@@ -35,7 +35,7 @@ class DataType{
             int value = 0;
             while(bits > 0){
                 if(bits <= 8 - offset){ // read part of the current byte
-                    value <<= bits; // make room
+                    value <<= bits; // make room of 'bits' bits
                     value |= (src[byte] >> (8 - offset - bits)) & ((1 << bits) - 1);
                     offset += bits;
                     bits = 0;
@@ -45,9 +45,9 @@ class DataType{
                     }
                 }
                 else{ // the current byte is not enough
-                    value <<= (8 - offset); // make room
-                    value |= src[byte] & (1 <<(8 - offset) - 1);
-                    bits -= offset;
+                    value <<= (8 - offset); // make room of 8 - offset bits
+                    value |= src[byte] & ((1 <<(8 - offset)) - 1);
+                    bits -= (8 - offset);
                     offset = 0;
                     byte++;
                 }
@@ -307,33 +307,47 @@ class DataType{
             }
 
             // only for debugging
-            // bindata--;
-            // for(int i = 0; i < totalBytes; i++){
-            //     for(int j = 0; j < 8; j++)
-            //         std::printf("%d", ((bindata[i] & (128 >> j)) >= 1));
-            //     std::printf(" ");
-            // }
-            // std::printf("\n");
+            bindata--;
+            for(int i = 0; i < totalBytes; i++){
+                for(int j = 0; j < 8; j++)
+                    std::printf("%d", ((bindata[i] & (128 >> j)) >= 1));
+                std::printf(" ");
+            }
+            std::printf("\n");
         }
 
         // convert binary data in bin to p decimal digits in dst
         // the bin doesn't include the 1 byte header, so this has nothing to do with s
-        void binToDigits(uchar* bin, uchar* dst, int p){
+        static void binToDigits(uchar* bin, uchar* dst, int p){
             int p_div_3 = p / 3, p_mod_3 = p % 3;
             memset(dst, 0, p);
             int ptr = 0;
             int byte = 0, offset = 0;
-            for(int i = 0; i < p; i++){
-                // TODO
+            for(int i = 0; i < p_div_3; i++){
+                int value = readBits(bin, byte, offset, 10);
+                dst[ptr++] = value / 100;
+                value %= 100;
+                dst[ptr++] = value / 10;
+                dst[ptr++] = value % 10;
             }
             switch(p_mod_3){
-                case 1:
+                case 1:{
+                    int value = readBits(bin, byte, offset, 4);
+                    dst[ptr++] = value;
+                }
                     break;
-                case 2:
+                case 2:{
+                    int value = readBits(bin, byte, offset, 7);
+                    dst[ptr++] = value / 10;
+                    dst[ptr++] = value % 10;
                     break;
+                }
                 default:
                     break;
             }
+            for(int i = 0; i < p; i++)
+                std::printf("%hhu ", dst[i]);
+            std::printf("\n");
         }
 };
 
