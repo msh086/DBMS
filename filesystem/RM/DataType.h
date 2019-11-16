@@ -8,8 +8,8 @@ using namespace std;
 class DataType{
     private:
         // write the lower 'avail' bits in 'data' into dst[byte], skipping the highest 'offset' bits
-        // it is ensured that offset < 8 and remain > 0, and the bits in dst are initially 0
-        static void writeBits(uchar* dst, int& byte, int& offset, int data, int avail){ // TODO unit test?
+        // it is ensured that offset < 8 and avail > 0, and the bits in dst are initially 0
+        static void writeBits(uchar* dst, int& byte, int& offset, int data, int avail){ // Tested
             while(avail > 0){
                 if(avail <= 8 - offset){ // current byte can hold remaining data
                     dst[byte] |= (data & ((1 << avail) - 1)) << (8 - offset - avail);
@@ -27,6 +27,32 @@ class DataType{
                     byte++;
                 }
             }
+        }
+
+        // read 'bits' bits from src[byte], skipping the highest 'offset' bits
+        // it is ensured that offset < 8 and bits > 0
+        static int readBits(uchar* src, int& byte, int& offset, int bits){ // ! Not Tested
+            int value = 0;
+            while(bits > 0){
+                if(bits <= 8 - offset){ // read part of the current byte
+                    value <<= bits; // make room
+                    value |= (src[byte] >> (8 - offset - bits)) & ((1 << bits) - 1);
+                    offset += bits;
+                    bits = 0;
+                    if(offset == 8){
+                        offset = 0;
+                        byte++;
+                    }
+                }
+                else{ // the current byte is not enough
+                    value <<= (8 - offset); // make room
+                    value |= src[byte] & (1 <<(8 - offset) - 1);
+                    bits -= offset;
+                    offset = 0;
+                    byte++;
+                }
+            }
+            return value;
         }
 
 
@@ -188,6 +214,7 @@ class DataType{
             }
         }
         // dotleft.dotright, if there is no dot, the string would be ""
+        // the bindata includes the 1 byte header
         static void floatToBin(bool isNegative, const char* dotleft, const char* dotright, uchar* bindata, int p, int s){
             int p_div_3 = p / 3, p_mod_3 = p % 3;
             int totalBytes = 1 + (10 * p_div_3 + (p_mod_3 > 0 ? (p_mod_3 * 3 + 1) : 0) + 7) / 8; // ceiling(10k + f(remain)) + 1
@@ -287,6 +314,26 @@ class DataType{
             //     std::printf(" ");
             // }
             // std::printf("\n");
+        }
+
+        // convert binary data in bin to p decimal digits in dst
+        // the bin doesn't include the 1 byte header, so this has nothing to do with s
+        void binToDigits(uchar* bin, uchar* dst, int p){
+            int p_div_3 = p / 3, p_mod_3 = p % 3;
+            memset(dst, 0, p);
+            int ptr = 0;
+            int byte = 0, offset = 0;
+            for(int i = 0; i < p; i++){
+                // TODO
+            }
+            switch(p_mod_3){
+                case 1:
+                    break;
+                case 2:
+                    break;
+                default:
+                    break;
+            }
         }
 };
 
