@@ -176,9 +176,21 @@ class DataType{
                 return isNegative ? !result : result;
                 break;
             }
-            case DATE:
+            case DATE:{ // 14 bits of year 1~9999, 4 bits of month 1~12, 5 bits of day 1~31, total 23 bits < 3 Bytes
+                int yearl, monthl, dayl, yearr, monthr, dayr;
+                binToDate(datal, yearl, monthl, dayl);
+                binToDate(datar, yearr, monthr, dayr);
+                if(yearl < yearr)
+                    return false;
+                if(monthl < monthr)
+                    return false;
+                if(dayl < dayr)
+                    return false;
+                return true;
                 break;
-            case INT:
+            }
+            case INT: // 4 bytes as it is in cpp
+                return *(int*)(datal) >= *(int*)datar;
                 break;
             default:
                 break;
@@ -320,6 +332,23 @@ class DataType{
             // for(int i = 0; i < p; i++)
             //     std::printf("%hhu ", dst[i]);
             // std::printf("\n");
+        }
+
+        // write a date into binary
+        static void dateToBin(int year, int month, int day, uchar* dst){
+            memset(dst, 0, 3); // the date type takes up 3 bytes
+            int byte = 0, offset = 0;
+            writeBits(dst, byte, offset, year, 14);
+            writeBits(dst, byte, offset, month, 4);
+            writeBits(dst, byte, offset, day, 5);
+        }
+
+        // get a date from binary
+        static void binToDate(uchar* src, int& year, int& month, int& day){
+            int byte = 0, offset = 0;
+            year = readBits(src, byte, offset, 14);
+            month = readBits(src, byte, offset, 4);
+            day = readBits(src, byte, offset, 5);
         }
 };
 
