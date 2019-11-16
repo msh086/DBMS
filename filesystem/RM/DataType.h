@@ -31,7 +31,7 @@ class DataType{
 
         // read 'bits' bits from src[byte], skipping the highest 'offset' bits
         // it is ensured that offset < 8 and bits > 0
-        static int readBits(uchar* src, int& byte, int& offset, int bits){ // ! Not Tested
+        static int readBits(uchar* src, int& byte, int& offset, int bits){ // Tested
             int value = 0;
             while(bits > 0){
                 if(bits <= 8 - offset){ // read part of the current byte
@@ -144,65 +144,36 @@ class DataType{
                 // p, s are stored in length(uint)
                 bool signl = datal[0] >> 7, signr = datar[0] >> 7;
                 if(signl != signr) // one is positive, the other is negative
-                    return signl ? false : true; // signl == 1 -> left <= 0
-                uint p = length >> 16, s = length & ((1 << 16) - 1);
-                auto fun = [](uchar* buf, uchar* data, uint p){
-                    uint byte = 0, offset = 0, pos = 0; // byte: current byte, offset: used bits, pos: position in buffer
-                    uint n3digit = p / 3, remain = p % 3;
-                    uint n3digitPtr = 0;
-                    while(n3digitPtr < n3digit){
-                        uint remain = 10;
-                        uint ans = 0;
-                        while(remain > 0){
-                            uint takeBits = min(remain, offset);
-                            ans <<= takeBits;
-                            ans &= (data[byte] >> (8 - takeBits - offset)) & (255 >> (8 - takeBits));
-                            uint firstPart = data[n3digitPtr] & (255 >> takeBits);
-                            remain -= takeBits;
-                            offset += takeBits;
-                            if(offset == 8){
-                                offset = 0;
-                                byte++;
-                            }
-                        }
-                        buf[pos++] = ans / 100;
-                        ans %= 100;
-                        buf[pos++] = ans / 10;
-                        ans %= 10;
-                        buf[pos++] = ans;
-                        n3digitPtr++;
-                    }
-                    switch (remain)
-                    {
-                    case 1:{ // 4 bits, 1 dec
-                            uchar value = 0;
-                            if(offset <= 4)
-                                value = (data[byte] >> (8 - 4 - offset)) & 15;
-                            else{
-                                value = data[byte] & (255 >> offset); // take rightmost 8 - offset bits
-                                value <<= (offset - 4); // offset - 4 bits to take
-                                value &= data[byte + 1] >> (12 - offset); // take leftmost offset - 4 bits
-                            }
-                            buf[pos++] = value;
+                    return signl ? false : true; // signl == true -> left <= 0
+                uint p = length >> 16, s = length & ((1 << 16) - 1); // TODO: actually length takes 2 bytes, update it in Header too
+                uchar bufferl[p] = {0};
+                uchar bufferr[p] = {0};
+                binToDigits(datal + 1, bufferl, p);
+                binToDigits(datar + 1, bufferr, p);
+                int dotPosl = datal[0] & 63, dotPosr = datar[0] & 63;
+                bool isNegative = signl;
+                bool result = !isNegative; // comparison result of abs value, the value of this will stay untouched if two numberic are equal
+                // ? when converting float to bin, dotpos is max(leftDotLength, p - s)
+                // ? so when two numeric's dotpos are different, they have different leftDotLength
+                if(dotPosl < dotPosr){
+                    result = true; // note dotpos is the number of digits to the right of the dot
+                }
+                else if(dotPosl > dotPosr){
+                    result = false;
+                }
+                else{ // when two numeric have the same dotpos
+                    for(int i = 0; i < p; i++){
+                        if(bufferl[i] > bufferr[i]){
+                            result = true;
                             break;
                         }
-                    case 2:{ // 7 bits, 2 dec
-                            uchar value = 0;
-                            if(offset <= 1)
-                                value = (data[byte] >> (1- offset)) & 127;
-                            else{
-                                value = data[byte] & (255 >> offset); // take rightmost 8 - offset bits
-                                value <<= (offset - 1); // offset - 1 bits to take
-                                value &= data[byte + 1] >> (9 - offset); // take leftmost offset - 1 bits
-                            }
-                            buf[pos++] = value / 10;
-                            buf[pos++] = value % 10;
+                        else if(bufferl[i] < bufferr[i]){
+                            result = false;
                             break;
                         }
-                    default:
-                        break;
                     }
-                };
+                }
+                return isNegative ? !result : result;
                 break;
             }
             case DATE:
@@ -307,13 +278,13 @@ class DataType{
             }
 
             // only for debugging
-            bindata--;
-            for(int i = 0; i < totalBytes; i++){
-                for(int j = 0; j < 8; j++)
-                    std::printf("%d", ((bindata[i] & (128 >> j)) >= 1));
-                std::printf(" ");
-            }
-            std::printf("\n");
+            // bindata--;
+            // for(int i = 0; i < totalBytes; i++){
+            //     for(int j = 0; j < 8; j++)
+            //         std::printf("%d", ((bindata[i] & (128 >> j)) >= 1));
+            //     std::printf(" ");
+            // }
+            // std::printf("\n");
         }
 
         // convert binary data in bin to p decimal digits in dst
@@ -345,9 +316,10 @@ class DataType{
                 default:
                     break;
             }
-            for(int i = 0; i < p; i++)
-                std::printf("%hhu ", dst[i]);
-            std::printf("\n");
+            // for test only
+            // for(int i = 0; i < p; i++)
+            //     std::printf("%hhu ", dst[i]);
+            // std::printf("\n");
         }
 };
 
