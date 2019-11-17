@@ -103,7 +103,7 @@ class BplusTree{
             CalcKeyLength();
             header->recordNum = 0;
             header->internalCap = (PAGE_SIZE - 5 + header->recordLenth) / (header->recordLenth + 4);
-            header->leafCap = (PAGE_SIZE - 9) / (header->recordLenth + 8);
+            header->leafCap = (PAGE_SIZE - 13) / (header->recordLenth + 8); // ? update for bidirectional linked list
             // root init
             root = CreateTreeNode(nullptr, BplusTreeNode::Leaf);
             nodes.pop_back(); // pop the root node from stack
@@ -163,7 +163,12 @@ uint* BplusTreeNode::NodePtrAt(int pos){
     return (uint*)(data + 5 + (tree->header->internalCap - 1) * tree->header->recordLenth + pos * 4);
 }
 
-uint* BplusTreeNode::LeafPtr(){
+uint* BplusTreeNode::NextLeafPtr(){
+    checkBuffer();
+    return (uint*)(data + 5 + tree->header->leafCap * (tree->header->recordLenth + 8) + 4);
+}
+
+uint* BplusTreeNode::PrevLeafPtr(){
     checkBuffer();
     return (uint*)(data + 5 + tree->header->leafCap * (tree->header->recordLenth + 8));
 }
@@ -250,6 +255,7 @@ void BplusTreeNode::InsertKeynPtrAt(int pos, const uchar* element, const RID& ri
     updateSize();
 }
 
+// insertion of duplicate record is permitted
 void BplusTree::Insert(const uchar* data, const RID& rid){
     header->recordNum++;
     UpdateRecordNum();
@@ -263,8 +269,9 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         // split the leaf node first
         BplusTreeNode* right = CreateTreeNode(node->parent, BplusTreeNode::Leaf);
         // maintain linklist of leaves
-        *right->LeafPtr() = *node->LeafPtr();
-        *node->LeafPtr() = right->page;
+        *right->NextLeafPtr() = *node->NextLeafPtr();
+        *right->PrevLeafPtr() = node->page;
+        *node->NextLeafPtr() = right->page;
         // splitting
         int leftsize = (node->size + 1) / 2;
         int insertPos = node->findFirstEqGreaterInLeaf(data);
@@ -397,6 +404,10 @@ bool BplusTree::Search(const uchar* data, const RID& rid){
 }
 
 void BplusTree::Remove(const uchar* data, const RID& rid){
+    BplusTreeNode* node = nullptr;
+    int pos = -1;
+    _search(data, node, pos);
+    // now at a leaf node
 
 }
 

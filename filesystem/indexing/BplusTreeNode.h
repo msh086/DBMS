@@ -33,6 +33,7 @@ class BplusTreeNode{
 
         // In the type byte of the page, 0 also represents internal and 1 represents leaf
         const static uchar Internal = 0, Leaf = 1;
+        const static uchar Any = 0, Eq = 1, Gt = 2, GE = 3, Lt = 4, LE = 5;
         // Low level APIs
 
         // update node size with bpm
@@ -47,7 +48,9 @@ class BplusTreeNode{
         // Return the node pointer at pos, only for internal nodes
         uint* NodePtrAt(int pos);
         // Return the node pointer to next leaf node, only for leaf nodes
-        uint* LeafPtr();
+        uint* NextLeafPtr();
+        // Return the node pointer to previous leaf node, only for leaf nodes
+        uint* PrevLeafPtr();
         // Return the key and data pointer at pos, only for leaf nodes
         uchar* KeynPtrAt(int pos);
         /**
@@ -69,6 +72,8 @@ class BplusTreeNode{
         void InsertNodePtrAt(int pos, uint pageID);
         // Insert a key and related data pointer at pos, only for leaf nodes
         void InsertKeynPtrAt(int pos, const uchar* element, const RID& rid);
+
+        void MoveNext();
         friend class BplusTree;
 };
 
