@@ -35,6 +35,13 @@ class BplusTreeNode{
         const static uchar Internal = 0, Leaf = 1;
         // Low level APIs
 
+        // update node size with bpm
+        void updateSize(){
+            checkBuffer();
+            *(uint*)(data + 1) = size;
+            bpm->markDirty(bufIdx);
+        }
+
         // Return the key at pos, only for internal nodes
         uchar* KeyAt(int pos);
         // Return the node pointer at pos, only for internal nodes

@@ -207,9 +207,11 @@ void BplusTreeNode::InsertKeyAt(int pos, const uchar* element){
         std::printf("trying to insert key beyond size\n");
         return;
     }
+    checkBuffer();
     std::memmove(KeyAt(pos + 1), KeyAt(pos), (size - pos) * tree->header->recordLenth);
     std::memcpy(KeyAt(pos), element, tree->header->recordLenth);
     size++;
+    updateSize();
 }
 
 void BplusTreeNode::InsertNodePtrAt(int pos, uint pageID){
@@ -217,8 +219,10 @@ void BplusTreeNode::InsertNodePtrAt(int pos, uint pageID){
         std::printf("trying to insert ptr beyond ptrNum\n");
         return;
     }
+    checkBuffer();
     std::memmove(NodePtrAt(pos + 1), NodePtrAt(pos), (ptrNum - pos) * 4);
     *NodePtrAt(pos) = pageID;
+    bpm->markDirty(bufIdx);
     ptrNum++;
 }
 
@@ -227,26 +231,132 @@ void BplusTreeNode::InsertKeynPtrAt(int pos, const uchar* element, const RID& ri
         std::printf("trying to insert key&ptr beyond size\n");
         return;
     }
+    checkBuffer();
     std::memmove(KeynPtrAt(pos + 1), KeynPtrAt(pos), (size - pos) * (tree->header->recordLenth + 8));
-    uint* dstpos = (uint*)KeynPtrAt(pos);
+    uchar* dstpos = KeynPtrAt(pos);
     std::memcpy(dstpos, element, tree->header->recordLenth);
     dstpos += tree->header->recordLenth;
-    dstpos[0] = rid.GetPageNum();
-    dstpos[1] = rid.GetSlotNum();
+    ((uint*)dstpos)[0] = rid.GetPageNum();
+    ((uint*)dstpos)[1] = rid.GetSlotNum();
     size++;
     ptrNum++;
+    updateSize();
 }
 
 void BplusTree::Insert(const uchar* data, const RID& rid){
+    header->recordNum++;
+    UpdateRecordNum();
     BplusTreeNode* node = nullptr;
     int pos = -1;
     _search(data, node, pos); // reach the leaf node
     if(node->size < header->leafCap){ // free space
         node->InsertKeynPtrAt(pos, data, rid);
-        header->recordNum++;
-        UpdateRecordNum();
     }
     else{ // the leaf node is full
+        // split the leaf node first
+        BplusTreeNode* right = CreateTreeNode(node->parent, BplusTreeNode::Leaf);
+        // maintain linklist of leaves
+        *right->LeafPtr() = *node->LeafPtr();
+        *node->LeafPtr() = right->page;
+        // splitting
+        int leftsize = (node->size + 1) / 2;
+        int insertPos = node->findFirstEqGreaterInLeaf(data);
+        if(insertPos >= leftsize){ // inserted key&ptr belongs to the right node
+            memcpy(right->KeynPtrAt(0), node->KeynPtrAt(leftsize), (insertPos - leftsize) * (header->recordLenth + 8));
+            right->size = insertPos - leftsize;
+            right->InsertKeynPtrAt(right->size, data, rid);
+            memcpy(right->KeynPtrAt(right->size), node->KeynPtrAt(insertPos), (node->size - insertPos) * (header->recordLenth + 8));
+            right->size = node->size + 1 - leftsize;
+            node->size = leftsize;
+            node->updateSize();
+            right->updateSize();
+        }
+        else{ // inserted key&ptr belongs to the left node. insertPos < leftsize
+            memcpy(right->KeynPtrAt(0), node->KeynPtrAt(leftsize - 1), (node->size + 1 -leftsize) * (header->recordLenth + 8));
+            right->size = node->size + 1 -leftsize;
+            node->size--;
+            node->InsertKeynPtrAt(insertPos, data, rid);
+            node->updateSize();
+            right->updateSize();
+        }
+
+        // recursively inserting into internal nodes
+        uchar overflowKey[header->recordLenth];
+        memcpy(overflowKey, right->KeynPtrAt(0), header->recordLenth);
+        uint rightSubTreePage = right->page;
+
+        while(node->parent != nullptr){
+            BplusTreeNode* pNode = node->parent;
+            int overflowPos = pNode->findFirstGreaterInInternal(overflowKey);
+            if(pNode->size < header->internalCap){ // internal node has free space
+                pNode->InsertKeyAt(overflowPos, overflowKey);
+                pNode->InsertNodePtrAt(overflowPos + 1, rightSubTreePage);
+            }
+            else{ // internal parent node is also full
+                // split the node
+                BplusTreeNode* ofRight = CreateTreeNode(pNode, BplusTreeNode::Internal);
+                int oldSize = pNode->size;
+                int ofLeftSize = (oldSize + 1) / 2;
+                if(overflowPos > ofLeftSize){
+                    // split keys
+                    // handle right node
+                    memcpy(ofRight->KeyAt(0), pNode->KeyAt(ofLeftSize + 1), (overflowPos - ofLeftSize - 1) * header->recordLenth);
+                    ofRight->size = overflowPos - ofLeftSize - 1;
+                    ofRight->InsertKeyAt(ofRight->size, overflowKey);
+                    memcpy(ofRight->KeyAt(ofRight->size), pNode->KeyAt(overflowPos), (oldSize - overflowPos) * header->recordLenth);
+                    ofRight->size = oldSize - ofLeftSize;
+                    ofRight->updateSize();
+                    // handle left node
+                    pNode->size = ofLeftSize;
+                    pNode->updateSize();
+                    // update ofKey
+                    memcpy(overflowKey, pNode->KeyAt(ofLeftSize), header->recordLenth);
+                    // split ptrs
+                    // handle right node
+                    memcpy(ofRight->NodePtrAt(0), pNode->NodePtrAt(ofLeftSize + 1), (overflowPos - ofLeftSize) * 4);
+                    *ofRight->NodePtrAt(overflowPos - ofLeftSize) = rightSubTreePage; // insert passed subtree
+                    memcpy(ofRight->NodePtrAt(overflowPos - ofLeftSize + 1), pNode->NodePtrAt(overflowPos + 1), (oldSize - overflowPos) * 4);
+                    ofRight->ptrNum = oldSize - ofLeftSize + 1;
+                    // handle left node
+                    pNode->ptrNum = ofLeftSize + 1;
+                    // update ofPage
+                    rightSubTreePage = ofRight->page;
+                }
+                else if(overflowPos < ofLeftSize){
+                    // split keys
+                    // handle right node
+                    memcpy(ofRight->KeyAt(0), pNode->KeyAt(ofLeftSize), (oldSize - ofLeftSize) * header->recordLenth);
+                    ofRight->size = oldSize - ofLeftSize;
+                    ofRight->updateSize();
+                    // back up ofKey to pass
+                    uchar tmpBuf[header->recordLenth];
+                    memcpy(tmpBuf, pNode->KeyAt(ofLeftSize - 1), header->recordLenth);
+                    // handle left node
+                    pNode->size = ofLeftSize - 1;
+                    pNode->InsertKeyAt(overflowPos, overflowKey); // updateSize is invoked inside, no need to call it once more
+                    pNode->updateSize();
+                    // we have backed up ofKey so it didn't get overwritten
+                    // update ofKey
+                    memcpy(overflowKey, tmpBuf, header->recordLenth);
+                    // split ptrs
+                    // handle right node
+                    memcpy(ofRight->NodePtrAt(0), pNode->NodePtrAt(ofLeftSize), (oldSize - ofLeftSize + 1) * 4);
+                    ofRight->ptrNum = oldSize - ofLeftSize + 1;
+                    // handle left node
+                    pNode->ptrNum = ofLeftSize;
+                    pNode->InsertNodePtrAt(overflowPos + 1, rightSubTreePage);
+                    // update ofPage
+                    rightSubTreePage = ofRight->page;
+                }
+                else{ // overflowPos == ofLeftSize, the overflowKey is passed on
+
+                }
+            }
+        }
+
+        if(node->parent == nullptr){ // when the only node is a leaf node
+            node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // 
+        }
         
     }
 }
