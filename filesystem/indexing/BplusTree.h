@@ -131,10 +131,17 @@ class BplusTree{
         }
 
         void UpdateRecordNum(){
-            data = bpm->reusePage(fid, page,headerIdx, data);
+            data = bpm->reusePage(fid, page, headerIdx, data);
             ((uint*)data)[1] = header->recordNum;
             bpm->markDirty(headerIdx);
         }
+
+        void UpdateRoot(){
+            data = bpm->reusePage(fid, page, headerIdx, data);
+            ((uint*)data)[5] = root->page;
+            bpm->markDirty(headerIdx);
+        }
+
         IndexHeader* header = nullptr;
         BplusTreeNode* root = nullptr;
         int colNum = 0;
@@ -291,6 +298,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
             if(pNode->size < header->internalCap){ // internal node has free space
                 pNode->InsertKeyAt(overflowPos, overflowKey);
                 pNode->InsertNodePtrAt(overflowPos + 1, rightSubTreePage);
+                return;
             }
             else{ // internal parent node is also full
                 // split the node
@@ -349,16 +357,39 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     rightSubTreePage = ofRight->page;
                 }
                 else{ // overflowPos == ofLeftSize, the overflowKey is passed on
-
+                    // split keys
+                    // handle right
+                    memcpy(ofRight->KeyAt(0), pNode->KeyAt(ofLeftSize), (oldSize - ofLeftSize) * header->recordLenth);
+                    ofRight->size = oldSize - ofLeftSize;
+                    ofRight->updateSize();
+                    // handle left
+                    pNode->size = ofLeftSize;
+                    pNode->updateSize();
+                    // split ptrs
+                    // handle right
+                    memcpy(ofRight->KeyAt(0), overflowKey, 4);
+                    memcpy(ofRight->KeyAt(1), pNode->KeyAt(ofLeftSize + 1), (oldSize - ofLeftSize) * 4);
+                    ofRight->ptrNum = oldSize - ofLeftSize + 1;
+                    // update ofPage
+                    rightSubTreePage = ofRight->page;
+                    // handle left
+                    pNode->ptrNum = ofLeftSize + 1;
                 }
-            }
-        }
-
-        if(node->parent == nullptr){ // when the only node is a leaf node
-            node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // 
-        }
-        
-    }
+                node = pNode;
+            } // end splitting
+        } // end recursion
+        // split the root node
+        node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // the new root
+        nodes.push_back(node); // node is not the root anymore, add it to the memory manager
+        UpdateRoot();
+        // construct root
+        memcpy(root->KeyAt(0), overflowKey, header->recordLenth);
+        *root->NodePtrAt(0) = node->page;
+        *root->NodePtrAt(1) = rightSubTreePage;
+        root->size = 1;
+        root->ptrNum = 2;
+        root->updateSize();
+    } // end overflow case
 }
 
 bool BplusTree::Search(const uchar* data, const RID& rid){
