@@ -18,7 +18,9 @@ class BplusTreeNode{
         int page;
         int bufIdx;
         uchar* data; // 8192B of data
+
         BplusTreeNode* parent;
+        int posInParent = -1;
 
         // check if data is still in buffer
         void checkBuffer(){
@@ -26,7 +28,8 @@ class BplusTreeNode{
         }
     public:
         uchar type = 0; // 0 for Internal node, 1 for Leaf node
-        uint size = 0; // number of elements in the node
+        uint size = 0; // number of keys in the node
+        uint ptrNum = 0; // number of ptrs in the node
 
         // In the type byte of the page, 0 also represents internal and 1 represents leaf
         const static uchar Internal = 0, Leaf = 1;
@@ -35,16 +38,21 @@ class BplusTreeNode{
         // Return the key at pos, only for internal nodes
         uchar* KeyAt(int pos);
         // Return the node pointer at pos, only for internal nodes
-        uchar* NodePtrAt(int pos);
+        uint* NodePtrAt(int pos);
         // Return the node pointer to next leaf node, only for leaf nodes
-        uchar* LeafPtr();
+        uint* LeafPtr();
         // Return the key and data pointer at pos, only for leaf nodes
-        uchar* KeyData(int pos);
+        uchar* KeynPtrAt(int pos);
         /**
-         * Find the first element > data.
+         * Find the first element > data in an internal node
          * @return The index of the found element, it will be 'BplusTreeNode.size' if data is the largest one
         */
-        int findFirstGreater(const uchar* data);
+        int findFirstGreaterInInternal(const uchar* data);
+        /**
+         * Find the first element > data in a leaf node
+         * @return the index of the found element, it will be 'BplusTreeNode.size' if data is the largest one
+        */
+        int findFirstEqGreaterInLeaf(const uchar* data);
 
         // Slightly higher level APIs
 
@@ -52,8 +60,8 @@ class BplusTreeNode{
         void InsertKeyAt(int pos, const uchar* element);
         // Insert a node pointer at pos, only for internal nodes
         void InsertNodePtrAt(int pos, uint pageID);
-        // Insert a data pointer at pos, only for leaf nodes
-        void InsertDataPtrAt(int pos, uchar* element, const RID& rid);
+        // Insert a key and related data pointer at pos, only for leaf nodes
+        void InsertKeynPtrAt(int pos, const uchar* element, const RID& rid);
         friend class BplusTree;
 };
 

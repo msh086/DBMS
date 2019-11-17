@@ -97,7 +97,7 @@ class DataType{
                 break;
             }
             default: // char, varchar don't have a fixed length
-                return length;
+                return length; // TODO: varchar ?
                 break;
             }
         }

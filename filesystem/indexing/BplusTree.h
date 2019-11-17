@@ -22,16 +22,31 @@
  *     [ (key, RID)... ] node pointer
 */
 class BplusTree{
-        // if the record is found, store the RID of the record into rid, return true
-        // otherwise, store the pageID and pos of the first record that is greater of equal to the input record into page and pos, return false
-        bool _search(const uchar* data, RID* rid, int& page, int& pos);
+        // find the first record whose key is >= 'data'
+        // store its b+ tree node and pos in node into 'node' and 'pos'
+        void _search(const uchar* data, BplusTreeNode*& node, int& pos);
         int fid;
         int page;
         int headerIdx;
         uchar* data = nullptr;
         static BufPageManager* bpm; // the only usage for bpm is to reuse buffers
         Table* table; // the table that stores all B+ tree nodes, creating & deleting nodes needs to be done through table
-        std::vector<BplusTreeNode*> nodes; // stores all opened tree nodes, for memory management
+        std::vector<BplusTreeNode*> nodes; // stores all opened tree nodes except root, for memory management
+
+        void CalcKeyLength(){
+            header->recordLenth = 0;
+            colNum = 0;
+            for(int i = 0; i < MAX_COL_NUM; i++){
+                if(header->attrType[i] != DataType::NONE){
+                    header->recordLenth += DataType::lengthOf(header->attrType[i], header->attrLenth[i]);
+                    if(header->nullMask & (128 >> i))
+                        header->recordLenth++;
+                    colNum++;
+                }
+                else
+                    break;
+            }
+        }
 
         void CalcColNum(){
             colNum = 0;
@@ -44,7 +59,7 @@ class BplusTree{
 
 
         // load an existing treenode from storage into memory
-        BplusTreeNode* GetTreeNode(BplusTreeNode* curNode, int page){
+        BplusTreeNode* GetTreeNode(BplusTreeNode* curNode, uint page){
             BplusTreeNode* node = new BplusTreeNode();
             node->tree = this;
             node->fid = fid;
@@ -52,6 +67,7 @@ class BplusTree{
             node->data = (uchar*)bpm->getPage(fid, page,node->bufIdx);
             node->type = node->data[0] == 0 ? BplusTreeNode::Internal : BplusTreeNode::Leaf; //* type byte: 0 for internal, 1 for leaf
             node->size = *(uint*)(node->data + 1);
+            node->ptrNum = node->type == BplusTreeNode::Internal ? node->size + 1 : node->size;
             node->parent = curNode;
             nodes.push_back(node);
         }
@@ -71,30 +87,37 @@ class BplusTree{
             node->data = (uchar*)bpm->getPage(fid, node->page, node->bufIdx);
             node->type = nodeType;
             node->size = 0;
+            node->ptrNum = 0;
             node->parent = curNode;
             nodes.push_back(node);
         }
 
     public:
-        // create a B+ tree
+        // create a B+ tree from a header
+        // you need to specify: attrType, attrLenth, nullMask, tableName, indexColID
+        // those assigned in constructor: recordLenth, internalCap, leafCap, rootPage, recordNum, 
         BplusTree(Table* table, IndexHeader* header){
             this->table = table;
             this->fid = table->FileID();
 
+            CalcKeyLength();
+            header->recordNum = 0;
             header->internalCap = (PAGE_SIZE - 5 + header->recordLenth) / (header->recordLenth + 4);
             header->leafCap = (PAGE_SIZE - 9) / (header->recordLenth + 8);
-
-            CalcColNum();
+            // root init
+            root = CreateTreeNode(nullptr, BplusTreeNode::Leaf);
+            nodes.pop_back(); // pop the root node from stack
 
             this->header = header;
+            header->rootPage = root->page;
             uchar* tmp = new uchar[PAGE_SIZE]{0};
             header->ToString(tmp);
             RID* rid = new RID();
             table->InsertRecord(tmp, rid);
             page = rid->GetPageNum();
             delete[] tmp;
+            delete rid;
             data = (uchar*)bpm->getPage(fid, page, headerIdx);
-            // TODO: root node
         }
         // load an existing B+ tree
         BplusTree(Table* table, int pageID){
@@ -128,25 +151,25 @@ uchar* BplusTreeNode::KeyAt(int pos){
     return data + 5 + pos * tree->header->recordLenth;
 }
 
-uchar* BplusTreeNode::NodePtrAt(int pos){
+uint* BplusTreeNode::NodePtrAt(int pos){
     checkBuffer();
-    return data + 5 + (tree->header->internalCap - 1) * tree->header->recordLenth + pos * 4;
+    return (uint*)(data + 5 + (tree->header->internalCap - 1) * tree->header->recordLenth + pos * 4);
 }
 
-uchar* BplusTreeNode::LeafPtr(){
+uint* BplusTreeNode::LeafPtr(){
     checkBuffer();
-    return data + 5 + tree->header->leafCap * (tree->header->recordLenth + 8);
+    return (uint*)(data + 5 + tree->header->leafCap * (tree->header->recordLenth + 8));
 }
 
-uchar* BplusTreeNode::KeyData(int pos){
+uchar* BplusTreeNode::KeynPtrAt(int pos){
     checkBuffer();
     return data + 5 + pos * (tree->header->recordLenth + 8);
 }
 
-int BplusTreeNode::findFirstGreater(const uchar* data){
-    for(int i = 0; i < size; i++){
-        checkBuffer();
-        uchar* cmpData = this->data;
+int BplusTreeNode::findFirstGreaterInInternal(const uchar* data){
+    checkBuffer();
+    uchar* cmpData = this->data + 5;
+    for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth){
         // TODO: binary search maybe ?
         // find the first element > data
         if(DataType::greaterThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->header->nullMask, tree->colNum)){
@@ -156,40 +179,84 @@ int BplusTreeNode::findFirstGreater(const uchar* data){
     return size;
 }
 
-bool BplusTree::_search(const uchar* data, RID* rid, int& page, int& pos){
-    BplusTreeNode* cur = root;
-    while(cur->type == BplusTreeNode::Internal){
-        // a leaf node may be under-sized, but an internal node will never be
-        int pos = cur->findFirstGreater(data); // pos is the exact subtree id to look up in
-        // TODO
+int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data){
+    checkBuffer();
+    uchar* cmpData = this->data + 5;
+    for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth + 8){
+        if(DataType::noLessThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->header->nullMask, tree->colNum)){
+            return i;
+        }
     }
 }
 
+void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos){
+    BplusTreeNode* cur = root;
+    while(cur->type == BplusTreeNode::Internal){
+        // a leaf node may be under-sized, but an internal node will never be
+        int posG = cur->findFirstGreaterInInternal(data); // pos is the exact subtree id to look up in
+        cur = GetTreeNode(cur, *cur->NodePtrAt(posG));
+        cur->posInParent = posG;
+    }
+    // now at the leaf node
+    node = cur;
+    pos = cur->findFirstEqGreaterInLeaf(data);
+}
 
+void BplusTreeNode::InsertKeyAt(int pos, const uchar* element){
+    if(pos > size){
+        std::printf("trying to insert key beyond size\n");
+        return;
+    }
+    std::memmove(KeyAt(pos + 1), KeyAt(pos), (size - pos) * tree->header->recordLenth);
+    std::memcpy(KeyAt(pos), element, tree->header->recordLenth);
+    size++;
+}
 
-// void BplusTreeNode::InsertAt(int pos, const uchar* element, const RID& rid){
-//     checkBuffer();
-//     if(type == Internal && size == tree->header->internalCap || type == Leaf && size == tree->header->leafCap){
-//             printf("In BplusTreeNode::InsertAt, node is full\n");
-//             return;
-//         }
-//     if(pos > size || pos < 0){
-//         printf("In BplusTreeNode::InsertAt, index out of bound\n");
-//         return;
-//     }
-//     if(type == Internal)
-//     memmove(data + (pos + 1) * tree->header->recordLenth, data + pos * tree->header->recordLenth, (size - pos) * tree->header->recordLenth);
-//     memcpy(data + pos * tree->header->recordLenth, element, tree->header->recordLenth);
-//     bpm->markDirty(bufIdx);
-//     if(type == Leaf){
-//         tree->header->recordNum++;
-//         tree->UpdateRecordNum();
-//     }
-// }
+void BplusTreeNode::InsertNodePtrAt(int pos, uint pageID){
+    if(pos > ptrNum){
+        std::printf("trying to insert ptr beyond ptrNum\n");
+        return;
+    }
+    std::memmove(NodePtrAt(pos + 1), NodePtrAt(pos), (ptrNum - pos) * 4);
+    *NodePtrAt(pos) = pageID;
+    ptrNum++;
+}
 
-// void BplusTreeNode::RemoveAt(int pos){
-//     checkBuffer();
-//     if(type == Internal &&)
-// }
+void BplusTreeNode::InsertKeynPtrAt(int pos, const uchar* element, const RID& rid){
+    if(pos > size){
+        std::printf("trying to insert key&ptr beyond size\n");
+        return;
+    }
+    std::memmove(KeynPtrAt(pos + 1), KeynPtrAt(pos), (size - pos) * (tree->header->recordLenth + 8));
+    uint* dstpos = (uint*)KeynPtrAt(pos);
+    std::memcpy(dstpos, element, tree->header->recordLenth);
+    dstpos += tree->header->recordLenth;
+    dstpos[0] = rid.GetPageNum();
+    dstpos[1] = rid.GetSlotNum();
+    size++;
+    ptrNum++;
+}
+
+void BplusTree::Insert(const uchar* data, const RID& rid){
+    BplusTreeNode* node = nullptr;
+    int pos = -1;
+    _search(data, node, pos); // reach the leaf node
+    if(node->size < header->leafCap){ // free space
+        node->InsertKeynPtrAt(pos, data, rid);
+        header->recordNum++;
+        UpdateRecordNum();
+    }
+    else{ // the leaf node is full
+        
+    }
+}
+
+bool BplusTree::Search(const uchar* data, const RID& rid){
+
+}
+
+void BplusTree::Remove(const uchar* data, const RID& rid){
+
+}
 
 #endif // BPLUSTREE_H
