@@ -34,6 +34,22 @@ class BplusTreeNode{
         void checkBuffer(){
             data = bpm->reusePage(fid, page, bufIdx, data);
         }
+
+        // whether this node has already been released
+        bool isActive = true;
+
+        // write back dirty node to storage
+        void writeBack(){
+            if(!isActive)
+                return;
+            isActive = false;
+            int realFid, realPid;
+            bpm->getKey(bufIdx, realFid, realPid);
+            if(realFid == fid && realFid == page)
+                bpm->writeBack(bufIdx);
+            // otherwise, the page is already cleared from bpm
+        }
+
     public:
         uchar type = 0; // 0 for Internal node, 1 for Leaf node
         ushort size = 0; // number of keys in the node // TODO 2 bytes
@@ -56,12 +72,18 @@ class BplusTreeNode{
             bpm->markDirty(bufIdx);
         }
 
+        // sync the header of a tree node with bpm
         void syncWithBuffer(){
             checkBuffer();
             *(uchar*)data = type;
             *(ushort*)(data + 1) = size;
             *(uint*)(data + 3) = parentPage;
             *(ushort*)(data + 7) = posInParent;
+            bpm->markDirty(bufIdx);
+        }
+
+        void MarkDirty(){
+            checkBuffer();
             bpm->markDirty(bufIdx);
         }
 

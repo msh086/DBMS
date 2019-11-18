@@ -1,6 +1,7 @@
 #ifndef RID_H_INCLUDED
 #define RID_H_INCLUDED
 class Table;
+class BplusTree;
 
 class RID
 {
@@ -21,6 +22,7 @@ class RID
             return SlotNum;
         }
         friend class Table;
+        friend class BplusTree;
 };
 
 

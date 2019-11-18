@@ -32,6 +32,7 @@ class BplusTree{
         static BufPageManager* bpm; // the only usage for bpm is to reuse buffers
         Table* table; // the table that stores all B+ tree nodes, creating & deleting nodes needs to be done through table
         std::vector<BplusTreeNode*> nodes; // stores all opened tree nodes except root, for memory management
+        std::vector<uint> rmPages; // pages to remove
 
         // runtime variables
         // minimum keys for internal and leaf nodes
@@ -182,6 +183,26 @@ class BplusTree{
                 return true;
             }
             return false;
+        }
+
+        // write all opened nodes back to memory
+        void ClearAndWriteBackOpenedNodes(){
+            for(BplusTreeNode* node : nodes){
+                node->writeBack();
+                delete node;
+            }
+            nodes.clear();
+        }
+
+        // remove all nodes from table
+        void RemoveNodes(){
+            RID r = RID();
+            r.SlotNum = 0;
+            for(uint page : rmPages){
+                r.PageNum = page;
+                table->DeleteRecord(r);
+            }
+            rmPages.clear();
         }
 
         IndexHeader* header = nullptr;
@@ -435,6 +456,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     right->parent = ofRight;
                     right->parentPage = ofRight->page;
                     right->posInParent = overflowPos - ofLeftSize;
+                    right->syncWithBuffer();
                 }
                 else if(overflowPos < ofLeftSize){
                     // split keys
@@ -462,11 +484,15 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                         node->parent = ofRight;
                         node->parentPage = ofRight->page;
                         node->posInParent -= ofLeftSize;
+                        node->syncWithBuffer();
                     }
-                    else if(node->posInParent >= overflowPos)
+                    else if(node->posInParent >= overflowPos){
                         node->posInParent++;
+                        node->syncWithBuffer();
+                    }
                     // set parent info of right
                     right->posInParent = overflowPos + 1;
+                    right->syncWithBuffer();
                 }
                 else{ // overflowPos == ofLeftSize, the overflowKey is passed on
                     // split keys
@@ -488,11 +514,13 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                         node->parent = right;
                         node->parentPage = right->page;
                         node->posInParent -= ofLeftSize;
+                        node->syncWithBuffer();
                     }
                     // set parent info of right
                     right->parent = ofRight;
                     right->parentPage = ofRight->page;
                     right->posInParent = 0;
+                    right->syncWithBuffer();
                 }
                 node = pNode; // go a level up
                 right = ofRight;
@@ -501,7 +529,8 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
             } // end splitting
         } // end recursion
         // split the root node
-        node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // the new root
+        right->parent = node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // the new root
+        nodes.pop_back(); // pop out the new root
         nodes.push_back(node); // node is not the root anymore, add it to the memory manager
         UpdateRoot();
         // construct root
@@ -510,11 +539,15 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         *root->NodePtrAt(1) = right->page;
         root->size = 1;
         root->ptrNum = 2;
+        root->syncWithBuffer();
         // set pos in parent
-        right->parent = root;
+        node->parentPage = root->page;
+        node->posInParent = 0;
+        node->syncWithBuffer();
+        // set pos in parent
         right->parentPage = root->page;
         right->posInParent = 1;
-        root->updateSize();
+        right->syncWithBuffer();
         //* Branch NO.3
     } // end overflow case
 }
@@ -540,9 +573,81 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
     }while(MoveNext(node, pos, Comparator::Eq));
     if(!found) // there is no record with RID rid among records with key data
         return;
+    header->recordNum--;
+    UpdateRecordNum();
     // remove
     if(node->size > leafMinKey){ // simple case: no underflow
-
+        node->RemoveKeynPtrAt(pos);
+        node->syncWithBuffer();
+        // no need to update parent's key
+    }
+    else if(node->parentPage != 0){ // leaf has exactly leafMinKey keys, underflow
+        BplusTreeNode *pNode =  node->parent ? node->parent : (node->parent = GetTreeNode(nullptr, node->parentPage)), 
+            *leftNode = nullptr, *rightNode = nullptr;
+        if(node->posInParent > 0){ // has left sibling
+            leftNode = GetTreeNode(pNode, *pNode->NodePtrAt(node->posInParent - 1));
+            if(leftNode->size > leafMinKey){ // borrow a key from left sibling
+                memmove(node->KeynPtrAt(1), node->KeynPtrAt(0), pos * (header->recordLenth + 8));
+                memcpy(node->KeynPtrAt(0), leftNode->KeynPtrAt(leftNode->size - 1), header->recordLenth + 8);
+                // update parent's split key
+                memcpy(pNode->KeyAt(leftNode->posInParent), leftNode->KeynPtrAt(leftNode->size - 1), header->recordLenth); 
+                leftNode->size--;
+                leftNode->syncWithBuffer();
+                node->MarkDirty();
+                pNode->MarkDirty();
+                return;
+            }
+            // left sibling also at min keys
+        }
+        else if(node->posInParent < pNode->size){ // has right sibling
+            rightNode = GetTreeNode(pNode, *pNode->NodePtrAt(node->posInParent + 1));
+            if(rightNode->size > leafMinKey){ // borrow a key from right sibling
+                memmove(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), (node->size - pos - 1) * (header->recordLenth + 8));
+                memmove(node->KeynPtrAt(leafMinKey - 1), rightNode->KeynPtrAt(0), header->recordLenth + 8);
+                rightNode->RemoveKeynPtrAt(0);
+                // update parent's split key
+                memcpy(pNode->KeyAt(node->posInParent), rightNode->KeynPtrAt(0), header->recordLenth);
+                rightNode->syncWithBuffer();
+                node->MarkDirty();
+                pNode->MarkDirty();
+                return;
+            }
+        }
+        int rmPos; // remove the key at rmPos and ptr at rmPos + 1
+        // both siblings are at min keys of doesn't exist, merge this leaf node with one of its siblings
+        if(leftNode){ // merge with left
+            memcpy(leftNode->KeynPtrAt(leafMinKey), node->KeynPtrAt(0), pos * (header->recordLenth + 8));
+            memcpy(leftNode->KeynPtrAt(leafMinKey + pos), node->KeynPtrAt(pos + 1), (leafMinKey - pos - 1) * (header->recordLenth + 8));
+            leftNode->size += leafMinKey - 1;
+            rmPos = leftNode->posInParent;
+            leftNode->syncWithBuffer();
+            rmPages.push_back(node->page);
+        }
+        else{ // merge with right
+            node->RemoveKeynPtrAt(pos);
+            memcpy(node->KeynPtrAt(leafMinKey - 1), rightNode->KeynPtrAt(0), leafMinKey * (header->recordLenth + 8));
+            node->size += leafMinKey - 1;
+            rmPos = node->posInParent;
+            node->syncWithBuffer();
+            rmPages.push_back(rightNode->page);
+        }
+        leftNode = nullptr;
+        rightNode = nullptr;
+        node = pNode;
+        // recursively remove key in internal node
+        while(true){
+            // remove key at rmPos and ptr at rmPos + 1 in 'node'
+            if(node->size > internalMinKey){ // simple case, remove directly
+                node->RemoveKeyAt(rmPos);
+                node->RemoveNodePtrAt(rmPos + 1);
+                node->syncWithBuffer();
+                // TODO: remove nodes from table
+            }
+        }
+    }
+    else{ // otherwise, the leaf node is the only node in this tree
+        node->RemoveKeynPtrAt(pos);
+        node->syncWithBuffer();
     }
 }
 
