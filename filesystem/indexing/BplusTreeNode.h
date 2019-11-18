@@ -88,12 +88,24 @@ class BplusTreeNode{
 
         // Slightly higher level APIs
 
-        // Insert a key at pos at pos, only for internal nodes
+        // insertions
+
+        // Insert a key at pos, only for internal nodes
         void InsertKeyAt(int pos, const uchar* element);
         // Insert a node pointer at pos, only for internal nodes
         void InsertNodePtrAt(int pos, uint pageID);
         // Insert a key and related data pointer at pos, only for leaf nodes
         void InsertKeynPtrAt(int pos, const uchar* element, const RID& rid);
+
+        // removals
+
+        // Remove a key at pos, only for internal nodes
+        void RemoveKeyAt(int pos);
+        // Remove a node pointer at pos, only for internal nodes
+        void RemoveNodePtrAt(int pos);
+        // Remove a key and related data pointer at pos, only for leaf nodes
+        void RemoveKeynPtrAt(int pos);
+
         friend class BplusTree;
 };
 

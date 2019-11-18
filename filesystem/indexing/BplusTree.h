@@ -33,6 +33,12 @@ class BplusTree{
         Table* table; // the table that stores all B+ tree nodes, creating & deleting nodes needs to be done through table
         std::vector<BplusTreeNode*> nodes; // stores all opened tree nodes except root, for memory management
 
+        // runtime variables
+        // minimum keys for internal and leaf nodes
+        // internalMinKey = ceiling(internalCap / 2) - 1
+        // leafMinKey = ceiling(leafCap / 2);
+        uint internalMinKey, leafMinKey;
+
         void CalcKeyLength(){
             header->recordLenth = 0;
             colNum = 0;
@@ -92,6 +98,7 @@ class BplusTree{
             node->ptrNum = 0;
             node->parent = curNode;
             node->parentPage = curNode ? curNode->page : 0; // if curNode is nullptr
+            node->syncWithBuffer();
             // posInParent cannot be decided here
             nodes.push_back(node);
         }
@@ -122,6 +129,8 @@ class BplusTree{
             delete[] tmp;
             delete rid;
             data = (uchar*)bpm->getPage(fid, page, headerIdx);
+            internalMinKey = (header->internalCap - 1) >> 1;
+            leafMinKey = (header->leafCap + 1) >> 1;
         }
         // load an existing B+ tree
         BplusTree(Table* table, int pageID){
@@ -132,6 +141,8 @@ class BplusTree{
             header = new IndexHeader();
             header->FromString(data);
             CalcColNum();
+            internalMinKey = (header->internalCap - 1) >> 1;
+            leafMinKey = (header->leafCap + 1) >> 1;
             // TODO: init root ?
         }
 
@@ -277,7 +288,36 @@ void BplusTreeNode::InsertKeynPtrAt(int pos, const uchar* element, const RID& ri
     ptrNum++;
 }
 
+void BplusTreeNode::RemoveKeyAt(int pos){
+    if(pos >= size){
+        std::printf("trying to remove key beyond size\n");
+        return;
+    }
+    checkBuffer();
+    std::memmove(KeyAt(pos), KeyAt(pos + 1), (size - pos - 1) * tree->header->recordLenth);
+    size--;
+}
 
+void BplusTreeNode::RemoveNodePtrAt(int pos){
+    if(pos >= ptrNum){
+        std::printf("trying to remove node ptr beyond ptrNum\n");
+        return;
+    }
+    checkBuffer();
+    std::memmove(NodePtrAt(pos), NodePtrAt(pos + 1), (ptrNum - pos - 1) * 4);
+    ptrNum--;
+}
+
+void BplusTreeNode::RemoveKeynPtrAt(int pos){
+    if(pos >= size){
+        std::printf("trying to remove key and ptr beyond size\n");
+        return;
+    }
+    checkBuffer();
+    std::memmove(KeynPtrAt(pos), KeynPtrAt(pos + 1), (size - pos - 1) * (tree->header->recordLenth + 8));
+    size--;
+    ptrNum--;
+}
 
 /**
  * Methods in BplusTree
@@ -488,7 +528,22 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
     int pos = -1;
     _search(data, node, pos);
     // now at a leaf node
-    // TODO: iterator on leaf records
+    if(pos == node->size) // no match is found
+        return;
+    bool found = false;
+    do{
+        uint* curRID = (uint*)(node->KeynPtrAt(pos) + header->recordLenth);
+        if(curRID[0] == rid.GetPageNum() && curRID[1] == rid.GetSlotNum()){
+            found = true;
+            break;
+        }
+    }while(MoveNext(node, pos, Comparator::Eq));
+    if(!found) // there is no record with RID rid among records with key data
+        return;
+    // remove
+    if(node->size > leafMinKey){ // simple case: no underflow
+
+    }
 }
 
 // TODO: bulk-loading of b+ tree to realized fast construction
