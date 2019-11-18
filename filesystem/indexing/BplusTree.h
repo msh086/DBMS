@@ -553,7 +553,20 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
 }
 
 bool BplusTree::Search(const uchar* data, const RID& rid){
-
+    BplusTreeNode* node = nullptr;
+    int pos = -1;
+    _search(data, node, pos);
+    if(pos == node->size) // no match is found
+        return false;
+    bool found = false;
+    do{
+        uint* curRID = (uint*)(node->KeynPtrAt(pos) + header->recordLenth);
+        if(curRID[0] == rid.GetPageNum() && curRID[1] == rid.GetSlotNum()){
+            found = true;
+            break;
+        }
+    }while(MoveNext(node, pos, Comparator::Eq));
+    return found;
 }
 
 void BplusTree::Remove(const uchar* data, const RID& rid){
