@@ -94,8 +94,6 @@ class BplusTreeNode{
         void InsertNodePtrAt(int pos, uint pageID);
         // Insert a key and related data pointer at pos, only for leaf nodes
         void InsertKeynPtrAt(int pos, const uchar* element, const RID& rid);
-
-        void MoveNext();
         friend class BplusTree;
 };
 

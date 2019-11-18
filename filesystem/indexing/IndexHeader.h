@@ -19,6 +19,7 @@ class IndexHeader : public BaseHeader{
         // capacity of internal node and leaf node (in the number of stored subtrees or RIDs)
         // internalCap = (PAGE_SIZE - BplusTreeNode::reservedBytes + recordLenth) / (recordLenth + 4)
         // leafCap = (PAGE_SIZE - BplusTreeNode::reservedBytes - 8) / (recordLenth + 8) // ? Now the leaves form a bidirectional linked list
+        // ! Maybe bidirectional linked list is not necessary. We can replace the backward pointer with FindSmallestRecord() and FindLargestRecord()
         uint internalCap, leafCap; // order of the internal node and leaf node
         uint rootPage; // the pageID of root node
         // uint attrLenth[MAX_COL_NUM] = {0};

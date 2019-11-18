@@ -1,6 +1,7 @@
 #ifndef DATATYPE_H
 #define DATATYPE_H
 #include "../utils/pagedef.h"
+#include "Comparator.h"
 #include <iostream>
 #include <cstring>
 using namespace std;
@@ -451,6 +452,14 @@ class DataType{
             return noLessThan(left, right, type, length, nullable) && !eq(left, right, type, length, nullable);
         }
 
+        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
+            return greaterThan(right, left, type, length, nullable);
+        }
+
+        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
+            return noGreaterThan(right, left, type, length, nullable);
+        }
+
         // why not use noLessThanArr && !eqArr ? Because it is not efficient
         static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
@@ -466,6 +475,39 @@ class DataType{
         static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
                 if(!eq(left, right, types[i], lengths[i], nullMask & (128 >> i)));
+                    return false;
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                left += length;
+                right += length;
+            }
+            return true;
+        }
+
+        // TODO: general purpose comparison methods
+        static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable, uchar cmp){
+            switch (cmp)
+            {
+            case Comparator::Any:
+                return true;
+            case Comparator::Eq:
+                return eq(left, right, type, length, nullable);
+            case Comparator::Gt:
+                return greaterThan(left, right, type, length, nullable);
+            case Comparator::GtEq:
+                return noLessThan(left, right, type, length, nullable);
+            case Comparator::Lt:
+                return lessThan(left, right, type, length, nullable);
+            case Comparator::LtEq:
+                return noGreaterThan(left, right, type, length, nullable);
+            default:
+                std::printf("cmp doesn't match any strategy defined in Comparator.h\n");
+                return false;
+            }
+        }
+
+        static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar cmp){
+            for(int i = 0; i < colNum; i++){
+                if(!compare(left, right, types[i], lengths[i], nullMask & (128 >> i), cmp));
                     return false;
                 int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
                 left += length;

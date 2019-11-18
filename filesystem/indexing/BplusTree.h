@@ -69,7 +69,7 @@ class BplusTree{
             node->size = *(ushort*)(node->data + 1);
             node->ptrNum = node->type == BplusTreeNode::Internal ? node->size + 1 : node->size;
             node->parent = curNode;
-            node->parentPage = curNode ? curNode->page : 0; // if curNode is nullptr
+            node->parentPage = *(uint*)(node->data + 3);
             node->posInParent = *(ushort*)(node->data + 7);
             nodes.push_back(node);
         }
@@ -147,6 +147,32 @@ class BplusTree{
             bpm->markDirty(headerIdx);
         }
 
+
+        // move the iterator right with comparison strategy 'mode', store the tree node and position into 'node' and 'pos'
+        // return if the DataType::compareArr(this record, next record, mode) is true
+        bool MoveNext(BplusTreeNode*& node, int& pos, uchar mode){
+            if(node->size == pos + 1){ // at the tail of a leaf node
+                if(*node->NextLeafPtr() == 0){ // the last leaf node
+                    return false;
+                }
+                else{ // get the next leaf node
+                    BplusTreeNode* nextNode = GetTreeNode(nullptr, *node->NextLeafPtr());
+                    if(DataType::compareArr(node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, header->nullMask, colNum, mode)){
+                        node = nextNode;
+                        pos = 0;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+            // no at the tail of current leaf node
+            if(DataType::compareArr(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, header->nullMask, colNum, mode)){
+                pos++;
+                return true;
+            }
+            return false;
+        }
+
         IndexHeader* header = nullptr;
         BplusTreeNode* root = nullptr;
         int colNum = 0;
@@ -157,7 +183,12 @@ class BplusTree{
 };
 BufPageManager* BplusTree::bpm = BufPageManager::Instance();
 
+/**
+ * Methods in BplusTreeNode
+*/
+
 // Low level APIs
+
 uchar* BplusTreeNode::KeyAt(int pos){
     checkBuffer();
     return data + BplusTreeNode::reservedBytes + pos * tree->header->recordLenth;
@@ -206,18 +237,6 @@ int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data){
     }
 }
 
-void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos){
-    BplusTreeNode* cur = root;
-    while(cur->type == BplusTreeNode::Internal){
-        // a leaf node may be under-sized, but an internal node will never be
-        int posG = cur->findFirstGreaterInInternal(data); // pos is the exact subtree id to look up in
-        cur = GetTreeNode(cur, *cur->NodePtrAt(posG));
-        cur->posInParent = posG;
-    }
-    // now at the leaf node
-    node = cur;
-    pos = cur->findFirstEqGreaterInLeaf(data);
-}
 
 void BplusTreeNode::InsertKeyAt(int pos, const uchar* element){
     if(pos > size){
@@ -258,6 +277,24 @@ void BplusTreeNode::InsertKeynPtrAt(int pos, const uchar* element, const RID& ri
     ptrNum++;
 }
 
+
+
+/**
+ * Methods in BplusTree
+*/
+
+void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos){
+    BplusTreeNode* cur = root;
+    while(cur->type == BplusTreeNode::Internal){
+        // a leaf node may be under-sized, but an internal node will never be
+        int posG = cur->findFirstGreaterInInternal(data); // pos is the exact subtree id to look up in
+        cur = GetTreeNode(cur, *cur->NodePtrAt(posG));
+        cur->posInParent = posG;
+    }
+    // now at the leaf node
+    node = cur;
+    pos = cur->findFirstEqGreaterInLeaf(data);
+}
 // insertion of duplicate record is permitted
 void BplusTree::Insert(const uchar* data, const RID& rid){
     header->recordNum++;
@@ -451,7 +488,8 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
     int pos = -1;
     _search(data, node, pos);
     // now at a leaf node
-
+    // TODO: iterator on leaf records
 }
 
+// TODO: bulk-loading of b+ tree to realized fast construction
 #endif // BPLUSTREE_H
