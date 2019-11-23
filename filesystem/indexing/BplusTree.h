@@ -641,9 +641,9 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
             mergedNode = leftNode;
         }
         else{ // merge with right
-            node->RemoveKeynPtrAt(pos); // ! BUG, insertion will change node->size
+            memcpy(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), (leafMinKey - pos - 1) * (header->recordLenth + 8));
             memcpy(node->KeynPtrAt(leafMinKey - 1), rightNode->KeynPtrAt(0), leafMinKey * (header->recordLenth + 8));
-            node->size += leafMinKey - 1; // ! BUG
+            node->size += leafMinKey - 1;
             node->syncWithBuffer();
             rmPos = node->posInParent;
             rmPages.push_back(rightNode->page);
