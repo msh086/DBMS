@@ -73,6 +73,7 @@ class BplusTreeNode{
         }
 
         // sync the header of a tree node with bpm
+        // including type, size, parentPage and posInParent
         void syncWithBuffer(){
             checkBuffer();
             *(uchar*)data = type;
@@ -113,19 +114,25 @@ class BplusTreeNode{
         // insertions
 
         // Insert a key at pos, only for internal nodes
+        // Has pos check
         void InsertKeyAt(int pos, const uchar* element);
         // Insert a node pointer at pos, only for internal nodes
+        // Has pos check
         void InsertNodePtrAt(int pos, uint pageID);
         // Insert a key and related data pointer at pos, only for leaf nodes
+        // Has pos check
         void InsertKeynPtrAt(int pos, const uchar* element, const RID& rid);
 
         // removals
 
         // Remove a key at pos, only for internal nodes
+        // Has pos check
         void RemoveKeyAt(int pos);
         // Remove a node pointer at pos, only for internal nodes
+        // Has pos check
         void RemoveNodePtrAt(int pos);
         // Remove a key and related data pointer at pos, only for leaf nodes
+        // Has pos check
         void RemoveKeynPtrAt(int pos);
 
         friend class BplusTree;
