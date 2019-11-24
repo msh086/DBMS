@@ -25,8 +25,10 @@
 #include "MyDB/Database.h"
 #include "RM/DataType.h"
 #include "indexing/IndexHeader.h"
-#include <iostream>
 #include "indexing/BplusTree.h"
+#include <iostream>
+#include <vector>
+#include <algorithm>
 
 using namespace std;
 
@@ -43,11 +45,21 @@ int main() {
 	ih->attrType[0] = DataType::INT;
 	BplusTree* tree = new BplusTree(tb, ih);
 	RID rid(5, 6);
-	int bufInt = 0;
-	uchar* dst = (uchar*)&bufInt;
-	for(int i = 0; i < 13; i++, bufInt++)
-		tree->Insert(dst, rid);
-	tree->DebugPrint();
+
+	int eleCount = 36;
+	std::vector<int> vec;
+	for(int i = 0; i < eleCount; i++)
+		vec.push_back(i);
+	std::random_shuffle(vec.begin(), vec.end());
+	for(int i = 0; i < eleCount; i++){
+		tree->Insert((uchar*)&vec.at(i), rid);
+		tree->DebugPrint();
+		printf("\n");
+	}
+	// int bufInt = 0;
+	// uchar* dst = (uchar*)&bufInt;
+	// for(int i = 0; i < 13; i++, bufInt++)
+	// 	tree->Insert(dst, rid);
 	db->CloseTable("index test");
 	// db->DeleteTable("index test");
 

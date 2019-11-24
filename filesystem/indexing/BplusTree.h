@@ -5,6 +5,7 @@
 #include "../RM/RID.h"
 #include "../MyDB/Table.h"
 #include <vector>
+#include <stdlib.h>
 /**
  * In a B+ tree of internal order a and leaf order b
  * 1B is used to store the node type, 4B is used to store node size
@@ -501,7 +502,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                 pNode->InsertNodePtrAt(overflowPos + 1, right->page);
                 pNode->syncWithBuffer();
                 // set parent info
-                int childrenCount = pNode->size;
+                int childrenCount = pNode->size + 1;
                 uint* childIter = pNode->NodePtrAt(overflowPos + 1);
                 for(int i = overflowPos + 1; i < childrenCount; i++, childIter++)
                     ChangeParent(*childIter, pNode->page, i);
@@ -610,8 +611,8 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     pNode->size = ofLeftSize;
                     // split ptrs
                     // handle right
-                    memcpy(ofRight->KeyAt(0), overflowKey, 4);
-                    memcpy(ofRight->KeyAt(1), pNode->KeyAt(ofLeftSize + 1), (oldSize - ofLeftSize) * 4);
+                    *ofRight->NodePtrAt(0) = right->page;
+                    memcpy(ofRight->NodePtrAt(1), pNode->NodePtrAt(ofLeftSize + 1), (oldSize - ofLeftSize) * 4);
                     ofRight->ptrNum = oldSize - ofLeftSize + 1;
                     // handle left
                     pNode->ptrNum = ofLeftSize + 1;
