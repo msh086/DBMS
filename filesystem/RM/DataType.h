@@ -463,7 +463,7 @@ class DataType{
         // why not use noLessThanArr && !eqArr ? Because it is not efficient
         static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(!greaterThan(left, right, types[i], lengths[i], nullMask & (128 >> i)));
+                if(greaterThan(left, right, types[i], lengths[i], nullMask & (128 >> i)) == false)
                     return false;
                 int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
                 left += length;
