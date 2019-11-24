@@ -40,6 +40,10 @@ class BplusTree{
         // leafMinKey = ceiling(leafCap / 2);
         uint internalMinKey, leafMinKey;
 
+        // helper variable
+        // when set to true, indicates that this->root need to be reloaded
+        bool reloadRoot = false;
+
         void CalcKeyLength(){
             header->recordLenth = 0;
             colNum = 0;
@@ -240,6 +244,10 @@ class BplusTree{
             Remove(data, rid);
             ClearAndWriteBackOpenedNodes();
             RemoveNodes();
+            if(reloadRoot){ // root has been deleted with other opened nodes
+                root = GetTreeNode(nullptr, header->rootPage);
+                reloadRoot = false;
+            }
         }
 
         bool SafeSearch(const uchar* data, const RID& rid){
@@ -779,6 +787,7 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
             if(node->parentPage == 0){ // if this is the root node
                 if(node->size == 1){ // one key remaining, tree height decreases by 1
                     root = mergedNode;
+                    reloadRoot = true;
                     header->rootPage = mergedNode->page;
                     UpdateRoot();
                     mergedNode->parentPage = 0;
