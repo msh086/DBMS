@@ -24,27 +24,49 @@
 #include "MyDB/Header.h"
 #include "MyDB/Database.h"
 #include "RM/DataType.h"
+#include "indexing/IndexHeader.h"
 #include <iostream>
+#include "indexing/BplusTree.h"
 
 using namespace std;
 
 int main() {
-	uchar dst[17] = {0}; // bin dst
-	uchar digits[38] = {0};
-	memset(dst, 0, 17);
-	DataType::floatToBin(true, "123456", "654321", dst, 12, 6); // p - s <= l <= p, r <= p - l -> ok
-	DataType::binToDigits(dst + 1, digits, 12);
-	DataType::floatToBin(true, "123456", "654321", dst, 5, 0); // l > p -> overflow
-	DataType::binToDigits(dst + 1, digits, 5);
-	DataType::floatToBin(true, "123456", "654321", dst, 15, 8); // l < p - s, r <= s -> ok
-	DataType::binToDigits(dst + 1, digits, 15);
-	DataType::floatToBin(true, "123456", "654321", dst, 15, 3); // l < p - s, r > s -> round
-	DataType::binToDigits(dst + 1, digits, 15);
-	DataType::floatToBin(true, "123456", "654321", dst, 8, 4); // p - s <= l <= p, r > p - l -> round
-	DataType::binToDigits(dst + 1, digits, 8);
+	Database* db = new Database();
+	Header* header = new Header();
+	header->recordLenth = PAGE_SIZE;
+	header->slotNum = (uint)PAGE_SIZE / header->recordLenth;
+	memcpy(header->attrName[0], "name", 5);
+	db->CreateTable("index test", header, nullptr);
+	Table* tb = db->OpenTable("index test");
+
+	IndexHeader * ih = new IndexHeader();
+	ih->attrType[0] = DataType::INT;
+	BplusTree* tree = new BplusTree(tb, ih);
+	RID rid(5, 6);
+	int bufInt = 1021;
+	uchar* dst = (uchar*)&bufInt;
+	for(int i = 0; i < 1022; i++, bufInt--)
+		tree->Insert(dst, rid);
+
+	db->CloseTable("index test");
+	// db->DeleteTable("index test");
+
+	// uchar dst[17] = {0}; // bin dst
+	// uchar digits[38] = {0};
+	// memset(dst, 0, 17);
+	// DataType::floatToBin(true, "123456", "654321", dst, 12, 6); // p - s <= l <= p, r <= p - l -> ok
+	// DataType::binToDigits(dst + 1, digits, 12);
+	// DataType::floatToBin(true, "123456", "654321", dst, 5, 0); // l > p -> overflow
+	// DataType::binToDigits(dst + 1, digits, 5);
+	// DataType::floatToBin(true, "123456", "654321", dst, 15, 8); // l < p - s, r <= s -> ok
+	// DataType::binToDigits(dst + 1, digits, 15);
+	// DataType::floatToBin(true, "123456", "654321", dst, 15, 3); // l < p - s, r > s -> round
+	// DataType::binToDigits(dst + 1, digits, 15);
+	// DataType::floatToBin(true, "123456", "654321", dst, 8, 4); // p - s <= l <= p, r > p - l -> round
+	// DataType::binToDigits(dst + 1, digits, 8);
 	return 0;
 
-
+/*
 	Database* db = new Database();
 	Header * header = new Header();
 	header->recordLenth = 10;
@@ -87,6 +109,9 @@ int main() {
 		printf("record page=%d, slot=%d, content=%.*s\n", rec->GetRid()->GetPageNum(), rec->GetRid()->GetSlotNum(), 10, rec->GetData());
 	}
 	db->DeleteTable("tb");
+	*/
+
+
 /*
 	MyBitMap::initConst();   //新加的初始化
 	FileManager* fm = new FileManager();

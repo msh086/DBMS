@@ -7,7 +7,7 @@ class Database;
 class Scanner;
 
 class Table{
-    BaseHeader* header;
+    Header* header;
     uchar* headerBuf;
     int fid;
     int headerIdx;

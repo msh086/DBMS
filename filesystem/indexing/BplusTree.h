@@ -79,6 +79,7 @@ class BplusTree{
             node->parentPage = *(uint*)(node->data + 3);
             node->posInParent = *(ushort*)(node->data + 7);
             nodes.push_back(node);
+            return node;
         }
         // create a treenode
         BplusTreeNode* CreateTreeNode(BplusTreeNode* curNode, int nodeType){
@@ -102,6 +103,7 @@ class BplusTree{
             node->syncWithBuffer();
             // posInParent cannot be decided here
             nodes.push_back(node);
+            return node;
         }
 
     public:
@@ -111,6 +113,7 @@ class BplusTree{
         BplusTree(Table* table, IndexHeader* header){
             this->table = table;
             this->fid = table->FileID();
+            this->header = header;
 
             CalcKeyLength();
             header->recordNum = 0;
@@ -120,7 +123,6 @@ class BplusTree{
             root = CreateTreeNode(nullptr, BplusTreeNode::Leaf);
             nodes.pop_back(); // pop the root node from stack
 
-            this->header = header;
             header->rootPage = root->page;
             uchar* tmp = new uchar[PAGE_SIZE]{0};
             header->ToString(tmp);
@@ -145,6 +147,7 @@ class BplusTree{
             internalMinKey = (header->internalCap - 1) >> 1;
             leafMinKey = (header->leafCap + 1) >> 1;
             // TODO: init root ?
+            root = GetTreeNode(nullptr, header->rootPage);
         }
 
         void UpdateRecordNum(){
@@ -388,7 +391,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         else{ // inserted key&ptr belongs to the left node. insertPos < leftsize
             memcpy(right->KeynPtrAt(0), node->KeynPtrAt(leftsize - 1), (node->size + 1 -leftsize) * (header->recordLenth + 8));
             right->size = node->size + 1 -leftsize;
-            node->size--;
+            node->size = node->ptrNum = leftsize - 1;
             node->InsertKeynPtrAt(insertPos, data, rid);
         }
         node->syncWithBuffer();
@@ -635,6 +638,7 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
             memcpy(leftNode->KeynPtrAt(leafMinKey), node->KeynPtrAt(0), pos * (header->recordLenth + 8));
             memcpy(leftNode->KeynPtrAt(leafMinKey + pos), node->KeynPtrAt(pos + 1), (leafMinKey - pos - 1) * (header->recordLenth + 8));
             leftNode->size += leafMinKey - 1;
+            memcpy(leftNode->NextLeafPtr(), node->NextLeafPtr(), 8); // update next leaf
             leftNode->syncWithBuffer();
             rmPos = leftNode->posInParent;
             rmPages.push_back(node->page);
@@ -644,6 +648,7 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
             memcpy(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), (leafMinKey - pos - 1) * (header->recordLenth + 8));
             memcpy(node->KeynPtrAt(leafMinKey - 1), rightNode->KeynPtrAt(0), leafMinKey * (header->recordLenth + 8));
             node->size += leafMinKey - 1;
+            memcpy(node->NextLeafPtr(), rightNode->NextLeafPtr(), 8); // update next leaf
             node->syncWithBuffer();
             rmPos = node->posInParent;
             rmPages.push_back(rightNode->page);

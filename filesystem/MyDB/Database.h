@@ -41,7 +41,7 @@ class Database{
 
 
     public:
-        void CreateTable(const char* tablename, BaseHeader* header, const uchar* defaultRecord){
+        void CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
             //TODO : check on header validity?
             bool createret = fm->createFile(tablename);
             if(!createret){
@@ -60,7 +60,8 @@ class Database{
             header->recordNum = 1;
             header->exploitedNum = 1;
             uchar* defaultBuf = new uchar[PAGE_SIZE]{};
-            memcpy(defaultBuf, defaultRecord, header->recordLenth);
+            if(header->defaultKeyMask)
+                memcpy(defaultBuf, defaultRecord, header->recordLenth);
             int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
             delete[] defaultBuf;
             if(defaultret != 0)
@@ -110,6 +111,10 @@ class Database{
             return ans;
         }
 
+        /**
+         * This will remove a table from activeTables
+         * WARNING: this will clear the bpm
+        */
         void CloseTable(const char* tablename){
             int index = getActiveTableIndex(tablename);
             if(index >= 0){
