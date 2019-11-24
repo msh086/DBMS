@@ -119,6 +119,13 @@ class BplusTree{
             header->recordNum = 0;
             header->internalCap = (PAGE_SIZE - BplusTreeNode::reservedBytes + header->recordLenth) / (header->recordLenth + 4);
             header->leafCap = (PAGE_SIZE - BplusTreeNode::reservedBytes - 8) / (header->recordLenth + 8); // ? update for bidirectional linked list
+            
+            // ! Debug only
+            // 2-4 tree
+            header->internalCap = 5;
+            header->leafCap = 4;
+            // ! end
+            
             // root init
             root = CreateTreeNode(nullptr, BplusTreeNode::Leaf);
             nodes.pop_back(); // pop the root node from stack
@@ -206,6 +213,13 @@ class BplusTree{
                 table->DeleteRecord(r);
             }
             rmPages.clear();
+        }
+
+        void ChangeParent(uint page, uint parent, ushort posInParent){
+            BplusTreeNode* node = GetTreeNode(nullptr, page);
+            node->parentPage = parent;
+            node->posInParent = posInParent;
+            node->syncWithBuffer();
         }
 
         IndexHeader* header = nullptr;
@@ -410,14 +424,21 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         // then we move on to the next level
         while(node->parent != nullptr){
             BplusTreeNode* pNode = node->parent;
-            int overflowPos = pNode->findFirstGreaterInInternal(overflowKey);
-            if(pNode->size < header->internalCap){ // internal node has free space
+            // int overflowPos = pNode->findFirstGreaterInInternal(overflowKey);
+            int overflowPos = node->posInParent; // ? check if works
+            if(pNode->size < header->internalCap - 1){ // internal node has free space
+                // insertion
                 pNode->InsertKeyAt(overflowPos, overflowKey);
                 pNode->InsertNodePtrAt(overflowPos + 1, right->page);
-                // set parent info of right
-                right->posInParent = overflowPos + 1;
                 pNode->syncWithBuffer();
-                right->syncWithBuffer();
+                // set parent info
+                int childrenCount = pNode->size;
+                uint* childIter = pNode->NodePtrAt(overflowPos + 1);
+                for(int i = overflowPos + 1; i < childrenCount; i++, childIter++)
+                    ChangeParent(*childIter, pNode->page, i);
+                // // set parent info of right
+                // right->posInParent = overflowPos + 1;
+                // right->syncWithBuffer();
                 return; //* Branch NO.2
             }
             else{ // internal parent node is also full
@@ -445,21 +466,26 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     ofRight->ptrNum = oldSize - ofLeftSize + 1;
                     // handle left node
                     pNode->ptrNum = ofLeftSize + 1;
-                    // set parent info of left
-                    if(node->posInParent >= ofLeftSize){
-                        node->parent = ofRight;
-                        node->parentPage = ofRight->page;
-                        if(node->posInParent >= overflowPos)
-                            node->posInParent -= ofLeftSize;
-                        else
-                            node->posInParent -= ofLeftSize + 1;
-                        node->syncWithBuffer();
-                    }
-                    // set parent info of right
-                    right->parent = ofRight;
-                    right->parentPage = ofRight->page;
-                    right->posInParent = overflowPos - ofLeftSize;
-                    right->syncWithBuffer();
+                    // set parent info // ? check if works
+                    int childrenCount = ofRight->ptrNum;
+                    uint* childIter = ofRight->NodePtrAt(0);
+                    for(int i = 0; i < childrenCount; i++, childIter++)
+                        ChangeParent(*childIter, ofRight->page, i);
+                    // // set parent info of left
+                    // if(node->posInParent >= ofLeftSize){
+                    //     node->parent = ofRight;
+                    //     node->parentPage = ofRight->page;
+                    //     if(node->posInParent >= overflowPos)
+                    //         node->posInParent -= ofLeftSize;
+                    //     else
+                    //         node->posInParent -= ofLeftSize + 1;
+                    //     node->syncWithBuffer();
+                    // }
+                    // // set parent info of right
+                    // right->parent = ofRight;
+                    // right->parentPage = ofRight->page;
+                    // right->posInParent = overflowPos - ofLeftSize;
+                    // right->syncWithBuffer();
                 }
                 else if(overflowPos < ofLeftSize){
                     // split keys
@@ -471,7 +497,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     memcpy(tmpBuf, pNode->KeyAt(ofLeftSize - 1), header->recordLenth);
                     // handle left node
                     pNode->size = ofLeftSize - 1;
-                    pNode->InsertKeyAt(overflowPos, overflowKey); // updateSize is invoked inside, no need to call it once more
+                    pNode->InsertKeyAt(overflowPos, overflowKey);
                     // we have backed up ofKey so it didn't get overwritten
                     // update ofKey
                     memcpy(overflowKey, tmpBuf, header->recordLenth);
@@ -482,20 +508,29 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     // handle left node
                     pNode->ptrNum = ofLeftSize;
                     pNode->InsertNodePtrAt(overflowPos + 1, right->page);
-                    // set parent info of node
-                    if(node->posInParent >= ofLeftSize){
-                        node->parent = ofRight;
-                        node->parentPage = ofRight->page;
-                        node->posInParent -= ofLeftSize;
-                        node->syncWithBuffer();
-                    }
-                    else if(node->posInParent >= overflowPos){
-                        node->posInParent++;
-                        node->syncWithBuffer();
-                    }
-                    // set parent info of right
-                    right->posInParent = overflowPos + 1;
-                    right->syncWithBuffer();
+                    // set parent info in ofRight
+                    int childrenCount = ofRight->ptrNum;
+                    uint* childIter = ofRight->NodePtrAt(0);
+                    for(int i = 0; i < childrenCount; i++, childIter++)
+                        ChangeParent(*childIter, ofRight->page, i);
+                    childrenCount = ofLeftSize + 1;
+                    childIter = pNode->NodePtrAt(overflowPos + 1);
+                    for(int i = overflowPos + 1; i < childrenCount; i++, childIter++)
+                        ChangeParent(*childIter, pNode->page, i);
+                    // // set parent info of node
+                    // if(node->posInParent >= ofLeftSize){
+                    //     node->parent = ofRight;
+                    //     node->parentPage = ofRight->page;
+                    //     node->posInParent -= ofLeftSize;
+                    //     node->syncWithBuffer();
+                    // }
+                    // else if(node->posInParent >= overflowPos){
+                    //     node->posInParent++;
+                    //     node->syncWithBuffer();
+                    // }
+                    // // set parent info of right
+                    // right->posInParent = overflowPos + 1;
+                    // right->syncWithBuffer();
                 }
                 else{ // overflowPos == ofLeftSize, the overflowKey is passed on
                     // split keys
@@ -512,18 +547,23 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                     // handle left
                     pNode->ptrNum = ofLeftSize + 1;
                     // no need to update ofKey, because the new ofKey is the same with the old one
-                    // set parent info of node
-                    if(node->posInParent >= ofLeftSize){
-                        node->parent = right;
-                        node->parentPage = right->page;
-                        node->posInParent -= ofLeftSize;
-                        node->syncWithBuffer();
-                    }
-                    // set parent info of right
-                    right->parent = ofRight;
-                    right->parentPage = ofRight->page;
-                    right->posInParent = 0;
-                    right->syncWithBuffer();
+                    // set parent info
+                    int childrenCount = ofRight->ptrNum;
+                    uint* childIter = ofRight->NodePtrAt(0);
+                    for(int i = 0; i < childrenCount; i++, childIter++)
+                        ChangeParent(*childIter, ofRight->page, i);
+                    // // set parent info of node
+                    // if(node->posInParent >= ofLeftSize){
+                    //     node->parent = right;
+                    //     node->parentPage = right->page;
+                    //     node->posInParent -= ofLeftSize;
+                    //     node->syncWithBuffer();
+                    // }
+                    // // set parent info of right
+                    // right->parent = ofRight;
+                    // right->parentPage = ofRight->page;
+                    // right->posInParent = 0;
+                    // right->syncWithBuffer();
                 }
                 node = pNode; // go a level up
                 right = ofRight;
@@ -665,6 +705,11 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                 node->RemoveKeyAt(rmPos);
                 node->RemoveNodePtrAt(rmPos + 1);
                 node->syncWithBuffer();
+                // set parent info
+                int childrenCount = node->size + 1;
+                uint* childIter = node->NodePtrAt(rmPos + 1);
+                for(int i = rmPos + 1; i < childrenCount; i++, childIter++)
+                    ChangeParent(*childIter, node->page, i);
                 //* branch 1
                 break;
             }
@@ -684,6 +729,11 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                     node->RemoveKeyAt(rmPos);
                     node->RemoveNodePtrAt(rmPos + 1);
                     node->syncWithBuffer();
+                    // set parent info
+                    int childrenCount = node->size + 1;
+                    uint* childIter = node->NodePtrAt(rmPos + 1);
+                    for(int i = rmPos + 1; i < childrenCount; i++, childIter++)
+                        ChangeParent(*childIter, node->page, i);
                     //* branch 3
                     break;
                 }
@@ -694,12 +744,16 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                 leftNode = GetTreeNode(pNode, *pNode->NodePtrAt(node->posInParent - 1));
                 if(leftNode->size > internalMinKey){ // borrow a key from left sibling
                     // handle key, perform a clockwise rotation
-                    memcpy(node->KeyAt(1), node->KeyAt(0), rmPos * header->recordLenth);
+                    memmove(node->KeyAt(1), node->KeyAt(0), rmPos * header->recordLenth); // * memmove
                     memcpy(node->KeyAt(0), pNode->KeyAt(leftNode->posInParent), header->recordLenth);
                     memcpy(pNode->KeyAt(leftNode->posInParent), leftNode->KeyAt(leftNode->size - 1), header->recordLenth);
                     // handle ptrs
-                    memcpy(node->NodePtrAt(1), node->NodePtrAt(0), (rmPos + 1) * 4);
+                    memmove(node->NodePtrAt(1), node->NodePtrAt(0), (rmPos + 1) * 4); //* memmove
                     memcpy(node->NodePtrAt(0), leftNode->NodePtrAt(leftNode->size), 4);
+                    // set parent info
+                    uint* childIter = node->NodePtrAt(0);
+                    for(int i = 0; i <= rmPos + 1; i++)
+                        ChangeParent(*childIter, node->page, i);
                     // updates
                     leftNode->size--;
                     leftNode->ptrNum--;
@@ -722,6 +776,13 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                     memcpy(node->NodePtrAt(internalMinKey), rightNode->NodePtrAt(0), 4);
                     rightNode->RemoveKeyAt(0);
                     rightNode->RemoveNodePtrAt(0);
+                    // set parent info
+                    ChangeParent(*node->NodePtrAt(internalMinKey - 1), node->page, internalMinKey - 1);
+                    int childrenCount = rightNode->size + 1;
+                    uint* childIter = rightNode->NodePtrAt(0);
+                    for(int i = 0; i < childrenCount; i++, childIter++)
+                        ChangeParent(*childIter, rightNode->page, i);
+                    // update
                     rightNode->syncWithBuffer();
                     node->MarkDirty();
                     pNode->MarkDirty();
@@ -740,6 +801,11 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                 // handle ptrs
                 memcpy(leftNode->NodePtrAt(internalMinKey + 1), node->NodePtrAt(0), (rmPos + 1) * 4);
                 memcpy(leftNode->NodePtrAt(internalMinKey + 1 + rmPos + 1), node->NodePtrAt(rmPos + 2), (internalMinKey - rmPos - 1) * 4);
+                // set parent info
+                int childrenCount = 2 * internalMinKey + 1;
+                uint* childIter = leftNode->NodePtrAt(internalMinKey + 1);
+                for(int i = internalMinKey + 1; i < childrenCount; i++, childIter++)
+                    ChangeParent(*childIter, leftNode->page, i);
                 // updates
                 leftNode->size += internalMinKey;
                 leftNode->ptrNum += internalMinKey;
@@ -756,6 +822,11 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                 // handle ptrs
                 memcpy(node->NodePtrAt(rmPos + 1), node->NodePtrAt(rmPos + 2), (internalMinKey - rmPos - 1) * 4);
                 memcpy(node->NodePtrAt(internalMinKey), rightNode->NodePtrAt(0), (internalMinKey + 1) * 4);
+                // set parent info
+                int childrenCount = 2 * internalMinKey + 1;
+                uint* childIter = node->NodePtrAt(rmPos + 1);
+                for(int i = rmPos + 1; i < childrenCount; i++, childIter++)
+                    ChangeParent(*childIter, node->page, i);
                 // handle update
                 node->size += internalMinKey;
                 node->ptrNum += internalMinKey;

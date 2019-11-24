@@ -43,9 +43,9 @@ int main() {
 	ih->attrType[0] = DataType::INT;
 	BplusTree* tree = new BplusTree(tb, ih);
 	RID rid(5, 6);
-	int bufInt = 1021;
+	int bufInt = 0;
 	uchar* dst = (uchar*)&bufInt;
-	for(int i = 0; i < 1022; i++, bufInt--)
+	for(int i = 0; i < 13; i++, bufInt++)
 		tree->Insert(dst, rid);
 
 	db->CloseTable("index test");
