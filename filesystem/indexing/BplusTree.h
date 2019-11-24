@@ -246,6 +246,50 @@ class BplusTree{
             bool ret = Search(data, rid);
             ClearAndWriteBackOpenedNodes();
         }
+
+#ifdef DEBUG
+        // print the tree's info
+        void DebugPrint(){
+            printf("index info:\n");
+            printf("key length: %u, root page: %u, element count: %u, internal order: %u, leaf order: %u\n", 
+                header->recordLenth, header->rootPage, header->recordNum, header->internalCap, header->leafCap);
+            uint buf[header->recordNum + 1] = {0};
+            int head = 0, pos = 0;
+            buf[pos++] = header->rootPage;
+            while(head != pos){
+                BplusTreeNode* node = GetTreeNode(nullptr, buf[head]);
+                head++;
+                printf("node info:\n");
+                printf("type: %hhu, size: %hu, page: %u, parentPage: %u, posInParent: %hu", 
+                    node->type, node->size, node->page, node->parentPage, node->posInParent);
+                if(node->type == BplusTreeNode::Internal)
+                    printf("\n");
+                else
+                    printf(", next leaf: %u\n", *node->NextLeafPtr());
+                if(node->type == BplusTreeNode::Internal){
+                    printf("keys: ");
+                    for(int i = 0; i < node->size; i++)
+                        printf("%u ", *node->KeyAt(i));
+                    printf("\nptrs: ");
+                    for(int i = 0; i <= node->size; i++){
+                        printf("%u ", *node->NodePtrAt(i));
+                        buf[pos++] = *node->NodePtrAt(i);
+                        if(pos == header->recordNum + 1)
+                            pos = 0;
+                    }
+                    printf("\n");
+                }
+                else{
+                    for(int i = 0; i < node->size; i++){
+                        uchar* tmpPtr = node->KeynPtrAt(i);
+                        printf("(%u, %u, %u)\n", *tmpPtr, *(tmpPtr + header->recordLenth), *(tmpPtr + 4 + header->recordLenth));
+                    }
+                }
+            }
+            delete root;
+            root = GetTreeNode(nullptr, header->rootPage);
+        }
+#endif
 };
 BufPageManager* BplusTree::bpm = BufPageManager::Instance();
 
@@ -592,6 +636,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         right->parent = node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // the new root
         nodes.pop_back(); // pop out the new root
         nodes.push_back(node); // node is not the root anymore, add it to the memory manager
+        header->rootPage = root->page;
         UpdateRoot();
         // construct root
         memcpy(root->KeyAt(0), overflowKey, header->recordLenth);

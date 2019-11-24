@@ -47,7 +47,7 @@ int main() {
 	uchar* dst = (uchar*)&bufInt;
 	for(int i = 0; i < 13; i++, bufInt++)
 		tree->Insert(dst, rid);
-
+	tree->DebugPrint();
 	db->CloseTable("index test");
 	// db->DeleteTable("index test");
 
