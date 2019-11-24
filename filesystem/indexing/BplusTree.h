@@ -228,7 +228,24 @@ class BplusTree{
         void Insert(const uchar* data, const RID& rid);
         bool Search(const uchar* data, const RID& rid);
         void Remove(const uchar* data, const RID& rid);
-    
+        
+        // Memory-safe methods for Insert, Search and Remove
+
+        void SafeInsert(const uchar* data, const RID& rid){
+            Insert(data, rid);
+            ClearAndWriteBackOpenedNodes();
+        }
+
+        void SafeRemove(const uchar* data, const RID& rid){
+            Remove(data, rid);
+            ClearAndWriteBackOpenedNodes();
+            RemoveNodes();
+        }
+
+        bool SafeSearch(const uchar* data, const RID& rid){
+            bool ret = Search(data, rid);
+            ClearAndWriteBackOpenedNodes();
+        }
 };
 BufPageManager* BplusTree::bpm = BufPageManager::Instance();
 
