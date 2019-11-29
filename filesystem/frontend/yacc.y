@@ -25,11 +25,21 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 1-如果记号OPERATOR是以普通方式定义的，如%token OPERATOR，则在动作中要写$1.m_cOp，以指明使用YYSTYPE的哪个成员
 2-用%token<m_cOp>OPERATOR方式定义后，只需要写$1，yacc会自动替换为$1.m_cOp
 另外用<>定义记号后，非终结符如file, tokenlist，必须用%type<member>来定义(否则会报错)，以指明它们的属性对应YYSTYPE中哪个成员，这时对该非终结符的引用，如$$，会自动替换为$$.member*/
+%token	DATABASE	DATABASES	TABLE	TABLES
+%token	SHOW		CREATE		DROP	USE
+%token	PRIMARY		KEY			NOT		NULL
+%token	INSERT		INTO 		VALUES	DELETE
+%token	FROM		WHERE		UPDATE	SET
+%token	SELECT		IS 			INT 	VARCHAR
+%token 	CHAR 		DEFAULT		CONSTRAINT	CHANGE
+%token 	ALTER		ADD			RENAME	DESC
+%token	INDEX		AND			DATE 	FLOAT
+%token	FOREIGN		REFERENCES	NUMERIC	DECIMAL
 %token<m_nInt>INTEGER
-%token<m_sId>IDENTIFIER
-%token<m_cOp>OPERATOR
-%type<m_sId>file
-%type<m_sId>tokenlist
+%token<str>IDENTIFIER
+%token<kw>OPERATOR
+%type<str>file
+%type<str>tokenlist
 
 %%
 
