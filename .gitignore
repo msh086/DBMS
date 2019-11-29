@@ -7,5 +7,9 @@
 !*.h
 !*.cpp
 
+# choose flex and yacc files
+!*.y
+!*.i
+
 # choose txt files
-*.txt
+!*.txt
