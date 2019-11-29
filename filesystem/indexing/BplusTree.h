@@ -255,19 +255,49 @@ class BplusTree{
             bool ret = Search(data, rid);
             ClearAndWriteBackOpenedNodes();
         }
+        struct Checker{
+            uint page;
+            uint parentPage;
+            uint posInParent;
+            bool hasLeftBound = false, hasRightBound = false;
+            int leftBound, rightBound; // [leftBound, righitBound)
+            bool hasNext = false;
+            uint nextLeaf;
+            Checker(uint page, uint parent, uint pos, bool hasL, bool hasR, int L, int R, bool hasN, uint N){
+                Reset(page, parent, pos, hasL, hasR, L, R, hasN, N);
+            }
 
+            Checker(){}
+
+            void Reset(uint page, uint parent, uint pos, bool hasL, bool hasR, int L, int R, bool hasN, uint N){
+                this->page = page;
+                parentPage = parent;
+                posInParent = pos;
+                hasLeftBound = hasL;
+                hasRightBound = hasR;
+                leftBound = L;
+                rightBound = R;
+                hasNext = hasN;
+                nextLeaf = N;
+            }
+        };
 #ifdef DEBUG
         // print the tree's info
         void DebugPrint(){
             printf("index info:\n");
             printf("key length: %u, root page: %u, element count: %u, internal order: %u, leaf order: %u\n", 
                 header->recordLenth, header->rootPage, header->recordNum, header->internalCap, header->leafCap);
-            uint buf[header->recordNum + 1] = {0};
+            Checker buf[header->recordNum + 1];
             int head = 0, pos = 0;
-            buf[pos++] = header->rootPage;
+            buf[pos++].Reset(header->rootPage, 0, 0xffff, false, false, 0, 0, false, 0);
+            if(pos == header->recordNum + 1)
+                pos = 0;
             while(head != pos){
-                BplusTreeNode* node = GetTreeNode(nullptr, buf[head]);
-                head++;
+                BplusTreeNode* node = GetTreeNode(nullptr, buf[head].page);
+
+                if(node->parentPage != buf[head].parentPage || (node->parentPage != 0 && node->posInParent != buf[head].posInParent))
+                    printf("*****Parent Info Doesn't Match*****\n");
+
                 printf("node info:\n");
                 printf("type: %hhu, size: %hu, page: %u, parentPage: %u, posInParent: %hu", 
                     node->type, node->size, node->page, node->parentPage, node->posInParent);
@@ -275,25 +305,64 @@ class BplusTree{
                     printf("\n");
                 else
                     printf(", next leaf: %u\n", *node->NextLeafPtr());
-                if(node->type == BplusTreeNode::Internal){
+                if(node->type == BplusTreeNode::Internal){ // internal
                     printf("keys: ");
-                    for(int i = 0; i < node->size; i++)
+                    bool hasPrev = buf[head].hasLeftBound;
+                    uint prevVal = buf[head].leftBound;
+                    for(int i = 0; i < node->size; i++){
+                        if(hasPrev && prevVal > *node->KeyAt(i))
+                            printf("*****Value Error*****\n");
+                        hasPrev = true;
+                        prevVal = *node->KeyAt(i);
                         printf("%u ", *node->KeyAt(i));
+                    }
+                    if(buf[head].hasRightBound && prevVal >= buf[head].rightBound)
+                        printf("*****Value Error*****\n");
                     printf("\nptrs: ");
                     for(int i = 0; i <= node->size; i++){
                         printf("%u ", *node->NodePtrAt(i));
-                        buf[pos++] = *node->NodePtrAt(i);
+                        bool hasLeft, hasRight;
+                        int leftBound, rightBound;
+                        if(i == 0){
+                            hasLeft = buf[head].hasLeftBound;
+                            leftBound = buf[head].leftBound;
+                        }
+                        else{
+                            hasLeft = true;
+                            leftBound = *node->KeyAt(i - 1);
+                        }
+                        if(i == node->size){
+                            hasRight = buf[head].hasRightBound;
+                            rightBound = buf[head].rightBound;
+                        }
+                        else{
+                            hasRight = true;
+                            rightBound = *node->KeyAt(i);
+                        }
+                        buf[pos++].Reset(*node->NodePtrAt(i), buf[head].page, i, hasLeft, hasRight, leftBound, rightBound, false, 0);
                         if(pos == header->recordNum + 1)
                             pos = 0;
                     }
                     printf("\n");
                 }
-                else{
+                else{ // leaf
+                    bool hasPrev = buf[head].hasLeftBound;
+                    int prevVal = buf[head].leftBound;
                     for(int i = 0; i < node->size; i++){
+                        if(hasPrev && prevVal > *(uint*)node->KeynPtrAt(i))
+                            printf("*****Value Error In Leaf*****\n");
+                        hasPrev = true;
+                        prevVal = *(uint*)node->KeynPtrAt(i);
                         uchar* tmpPtr = node->KeynPtrAt(i);
                         printf("(%u, %u, %u)\n", *tmpPtr, *(tmpPtr + header->recordLenth), *(tmpPtr + 4 + header->recordLenth));
                     }
+                    if(buf[head].hasRightBound && prevVal >= buf[head].rightBound)
+                        printf("*****Value Error In Leaf*****\n");
                 }
+                // end internal & leaf
+                head++;
+                if(head == header->recordNum + 1)
+                    head = 0;
             }
             delete root;
             root = GetTreeNode(nullptr, header->rootPage);
@@ -463,7 +532,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         *node->NextLeafPtr() = right->page;
         // splitting
         int leftsize = (node->size + 1) / 2;
-        int insertPos = node->findFirstEqGreaterInLeaf(data);
+        int insertPos = pos;
         if(insertPos >= leftsize){ // inserted key&ptr belongs to the right node
             memcpy(right->KeynPtrAt(0), node->KeynPtrAt(leftsize), (insertPos - leftsize) * (header->recordLenth + 8));
             right->size = insertPos - leftsize;

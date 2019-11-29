@@ -29,6 +29,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <ctime>
 
 using namespace std;
 
@@ -46,16 +47,35 @@ int main() {
 	BplusTree* tree = new BplusTree(tb, ih);
 	RID rid(5, 6);
 
-	int eleCount = 36;
+	int eleCount = 30;
 	std::vector<int> vec;
 	for(int i = 0; i < eleCount; i++)
 		vec.push_back(i);
+	srand((ull)time(0));
 	std::random_shuffle(vec.begin(), vec.end());
+	printf("Insertion sequence\n");
+	for(int i = 0; i < eleCount; i++)
+		printf("%d ", vec.at(i));
+	printf("\n");
 	for(int i = 0; i < eleCount; i++){
 		tree->Insert((uchar*)&vec.at(i), rid);
+		// tree->DebugPrint();
+		// printf("\n");
+	}
+	tree->DebugPrint();
+	printf("\n");
+	printf("Start deletion\n");
+	std::random_shuffle(vec.begin(), vec.end());
+	printf("Deletion sequence:\n");
+	for(int i = 0; i < eleCount; i++)
+		printf("%d ", vec.at(i));
+	printf("\n");
+	for(int i = 0; i < eleCount; i++){
+		tree->Remove((uchar*)&vec.at(i), rid);
 		tree->DebugPrint();
 		printf("\n");
 	}
+
 	// int bufInt = 0;
 	// uchar* dst = (uchar*)&bufInt;
 	// for(int i = 0; i < 13; i++, bufInt++)
