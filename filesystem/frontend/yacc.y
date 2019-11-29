@@ -35,11 +35,10 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 %token 	ALTER		ADD			RENAME	DESC
 %token	INDEX		AND			DATE 	FLOAT
 %token	FOREIGN		REFERENCES	NUMERIC	DECIMAL
-%token<m_nInt>INTEGER
-%token<str>IDENTIFIER
-%token<kw>OPERATOR
-%type<str>file
-%type<str>tokenlist
+// 以上是SQL关键字
+%token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
+%token 	IDENTIFIER	GE			LE 			NE
+%token	'+'	'-'	'*'	'/' '(' ')' '>' '<' '=' ','
 
 %%
 

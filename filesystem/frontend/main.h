@@ -21,8 +21,6 @@ enum Keyword{DATABASE, DATABASES, TABLE, TABLES, SHOW, CREATE, DROP, USE, PRIMAR
 struct Type//通常这里面每个成员，每次只会使用其中一个，一般是定义成union以节省空间(但这里用了string等复杂类型造成不可以)
 {
 	string str;
-	int m_nInt;
-	Keyword kw;
 };
 
 
