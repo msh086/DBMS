@@ -382,10 +382,9 @@ tokenlist:							//记号流，或者为空，或者由若干数字、标识符�
 */
 
 %%
-
 void yyerror(const char *s)			//当yacc遇到语法错误时，会回调yyerror函数，并且把错误信息放在参数s中
 {
-	cerr<<s<<endl;					//直接输出错误信息
+	printf("Error: %s\n", s);					//直接输出错误信息
 }
 
 int main()							//程序主函数，这个函数也可以放到其它.c, .cpp文件里

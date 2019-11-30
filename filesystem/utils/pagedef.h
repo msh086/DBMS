@@ -80,6 +80,7 @@ typedef long long ll;
 typedef double db;
 typedef int INT;
 typedef int(cf)(uchar*, uchar*);
-int current = 0;
-int tt = 0;
+// what the hell are these ?
+// int current = 0;
+// int tt = 0;
 #endif

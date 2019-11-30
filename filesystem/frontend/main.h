@@ -2,14 +2,11 @@
 #ifndef MAIN_HPP
 #define MAIN_HPP
 
-#include <iostream>//使用C++库
 #include <string>
-#include <vector>
 #include <stdio.h>//printf和FILE要用的
 #include "../utils/pagedef.h" // 全局宏定义
 #include "Global.h" // lexer的辅助静态类
 
-using namespace std;
 
 extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个需要使用的C函数，其声明都包括在extern "C"{}块里面，这样C++链接时才能成功链接它们。extern "C"用来在C++环境下设置C链接类型。
 {					//lex.l中也有类似的这段extern "C"，可以把它们合并成一段，放到共同的头文件main.h中
@@ -30,7 +27,7 @@ yylval是用YYSTYPE宏定义的，只要重定义YYSTYPE宏，就能重新指定
 // 这是flex和yacc共用的数据结构,用于:flex向yacc传递数据;yacc产生式右侧向左侧传递数据
 struct Type//通常这里面每个成员，每次只会使用其中一个，一般是定义成union以节省空间(但这里用了string等复杂类型造成不可以)
 {
-	string str; // for lexer, record all kinds of literals. string_lit, int_lit, float_lit, data_lit
+	std::string str; // for lexer, record all kinds of literals. string_lit, int_lit, float_lit, data_lit
 };
 
 
