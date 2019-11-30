@@ -1,14 +1,19 @@
-main : lex.yy.o yacc.tab.o
-	g++ lex.yy.o yacc.tab.o -o main
-lex.yy.o : lex.yy.cc
-	g++ -c lex.yy.cc
-yacc.tab.o : yacc.tab.cpp
-	g++ -c yacc.tab.cpp
-lex.yy.cc : lex.l
-	flext -+ lex.l
-yacc.tab.cpp : yacc.ypp
-	bison -d yacc.ypp
+main : yacc.tab.o lex.yy.o Global.o
+	g++ yacc.tab.o lex.yy.o Global.o -o main
+yacc.tab.o : yacc.tab.c
+	g++ -c yacc.tab.c
+lex.yy.o : lex.yy.c
+	g++ -c lex.yy.c
+Global.o : Global.h Global.cpp
+	g++ -c Global.cpp
+lex.yy.c : lex.l
+	flex lex.l
+yacc.tab.c : yacc.y
+	bison -d yacc.y
 
 .PHONY : clean
 clean :
-	rm *.o
+	- rm *.o
+	- rm *.tab.*
+	- rm *.c
+	- rm *.cc

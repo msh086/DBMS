@@ -10,13 +10,13 @@ yacc文件由3段组成，用2个%%行把这3段隔开。
 
 //第1段：声明段
 #include "main.h"	//lex和yacc要共用的头文件，里面包含了一些头文件，重定义了YYSTYPE
-
+/*
 extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个需要使用的C函数，其声明都包括在extern "C"{}块里面，这样C++链接时才能成功链接它们。extern "C"用来在C++环境下设置C链接类型。
 {					//lex.l中也有类似的这段extern "C"，可以把它们合并成一段，放到共同的头文件main.h中
 	void yyerror(const char *s);
 	extern int yylex(void);//该函数是在lex.yy.c里定义的，yyparse()里要调用该函数，为了能编译和链接，必须用extern加以声明
 }
-
+*/
 %}
 
 /*lex里要return的记号的声明
@@ -27,10 +27,10 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 另外用<>定义记号后，非终结符如file, tokenlist，必须用%type<member>来定义(否则会报错)，以指明它们的属性对应YYSTYPE中哪个成员，这时对该非终结符的引用，如$$，会自动替换为$$.member*/
 %token	DATABASE	DATABASES	TABLE	TABLES
 %token	SHOW		CREATE		DROP	USE
-%token	PRIMARY		KEY			NOT		NULL
+%token	PRIMARY		KEY			NOT		KW_NULL		// NULL 和c++关键字冲突，改为KW_NULL
 %token	INSERT		INTO 		VALUES	DELETE
 %token	FROM		WHERE		UPDATE	SET
-%token	SELECT		IS 			INT 	VARCHAR
+%token	SELECT		IS 			KW_INT 	VARCHAR		// INT 和c++关键字冲突，改为KW_INT
 %token 	CHAR 		DEFAULT		CONSTRAINT	CHANGE
 %token 	ALTER		ADD			RENAME	DESC
 %token	INDEX		AND			DATE 	FLOAT
@@ -159,7 +159,7 @@ field		:	IDENTIFIER type
 				{
 					printf("id type\n");
 				}
-			|	IDENTIFIER type NOT NULL
+			|	IDENTIFIER type NOT KW_NULL
 				{
 					printf("not null\n");
 				}
@@ -167,7 +167,7 @@ field		:	IDENTIFIER type
 				{
 					printf("default\n");
 				}
-			|	IDENTIFIER type NOT NULL DEFAULT value
+			|	IDENTIFIER type NOT KW_NULL DEFAULT value
 				{
 					printf("not null default\n");
 				}
@@ -181,7 +181,7 @@ field		:	IDENTIFIER type
 				}
 			;
 
-type		:	INT
+type		:	KW_INT
 				{
 					printf("type int\n");
 				}
@@ -247,7 +247,7 @@ value		:	INT_LIT
 				{
 					printf("string lit\n");
 				}
-			|	NULL
+			|	KW_NULL
 				{
 					printf("null lit\n");
 				}
@@ -257,11 +257,11 @@ whereClause	:	col op expr
 				{
 					printf("if op\n");
 				}
-			|	col IS NULL
+			|	col IS KW_NULL
 				{
 					printf("if null\n");
 				}
-			|	col IS NOT NULL
+			|	col IS NOT KW_NULL
 				{
 					printf("if not null\n");
 				}
@@ -392,7 +392,7 @@ int main()							//程序主函数，这个函数也可以放到其它.c, .cpp�
 {
 	const char* sFile="file.txt";	//打开要读取的文本文件
 	FILE* fp=fopen(sFile, "r");
-	if(fp==NULL)
+	if(fp==nullptr)
 	{
 		printf("cannot open %s\n", sFile);
 		return -1;
