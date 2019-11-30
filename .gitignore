@@ -9,7 +9,9 @@
 
 # choose flex and yacc files
 !*.y
-!*.i
+!*.ypp
+!*.l
+!*makefile
 
 # choose txt files
 !*.txt
