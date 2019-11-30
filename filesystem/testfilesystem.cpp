@@ -32,9 +32,9 @@
 #include <ctime>
 
 using namespace std;
-
 int main() {
-	Database* db = new Database();
+
+	Database* db = new Database("db");
 	Header* header = new Header();
 	header->recordLenth = PAGE_SIZE;
 	header->slotNum = (uint)PAGE_SIZE / header->recordLenth;

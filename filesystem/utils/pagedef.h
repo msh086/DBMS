@@ -66,6 +66,11 @@
 */
 #define VARCHAR_FRAG_LEN 502
 
+#define DBMS_RESERVED_TABLE_NAME "ALL_DB"
+#define DB_RESERVED_TABLE_NAME "ALL_TB"
+#define IDX_RESERVED_TABLE_NAME "BPTREE"
+#define VARCHAR_RESERVED_TABLE_NAME "VARCHAR"
+
 #define DEBUG // If this macro is set, debug methods are available
 
 #define RELEASE 1

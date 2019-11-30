@@ -19,6 +19,17 @@ class Record
         RID* GetRid()const{
             return id;
         }
+
+        void FreeMemory(){
+            if(data != nullptr){
+                delete[] data;
+                data = nullptr;
+            }
+            if(id != nullptr){
+                delete id;
+                id = nullptr;
+            }
+        }
         /**
         *Memory management is always Record's duty once it's assigned to one of Record's fields
         */

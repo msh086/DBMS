@@ -3,6 +3,7 @@
 #include "Header.h"
 #include "../RM/Record.h"
 #include "../bufmanager/BufPageManager.h"
+class DBMS;
 class Database;
 class Scanner;
 
@@ -250,7 +251,9 @@ class Table{
         }
 
         Scanner* GetScanner(bool (*demand)(const Record& record));
+        Scanner* GetScanner(const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp);
 
+        friend class DBMS;
         friend class Database;    
 };
 FileManager* Table::fm = FileManager::Instance();

@@ -2,6 +2,7 @@
 #define RID_H_INCLUDED
 class Table;
 class BplusTree;
+class Scanner;
 
 class RID
 {
@@ -23,6 +24,7 @@ class RID
         }
         friend class Table;
         friend class BplusTree;
+        friend class Scanner;
 };
 
 

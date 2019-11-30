@@ -439,9 +439,9 @@ class DataType{
 
         static bool noLessThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(!noLessThan(left, right, types[i], lengths[i], nullMask & (128 >> i)))
+                if(!noLessThan(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
                 right += length;
             }
@@ -463,9 +463,9 @@ class DataType{
         // why not use noLessThanArr && !eqArr ? Because it is not efficient
         static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(greaterThan(left, right, types[i], lengths[i], nullMask & (128 >> i)) == false)
+                if(greaterThan(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))) == false)
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
                 right += length;
             }
@@ -474,16 +474,18 @@ class DataType{
 
         static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(!eq(left, right, types[i], lengths[i], nullMask & (128 >> i)));
+                if(!eq(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))));
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
                 right += length;
             }
             return true;
         }
 
-        // TODO: general purpose comparison methods
+        /**
+         * return if left cmp right is true. Length is the pure length excluding the null byte
+        */
         static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable, uchar cmp){
             switch (cmp)
             {
@@ -505,15 +507,42 @@ class DataType{
             }
         }
 
+        /**
+         * 比较两组值，left cmp right == true iff left[i] cmp right[i] == true, i = 0, 1, ..., colNum - 1
+        */
         static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar cmp){
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], nullMask & (128 >> i), cmp));
+                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp));
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (128 >> i)) != 0);
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
                 right += length;
             }
             return true;
+        }
+
+        /**
+         * 比较两组值，允许为每个字段指定比较方法，left cmp right == true iff left[i] cmp[i] right[i] == true, i = 0, 1, ..., colNum - 1
+        */
+        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp){
+            for(int i = 0; i < colNum; i++){
+                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp[i]));
+                    return false;
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
+                left += length;
+                right += length;
+            }
+            return true;
+        }
+
+        static int calcTotalLength(const uchar* types, const ushort* lengths, uint nullMask, int colNum){
+            int ans = 0;
+            for(int i = 0; i < colNum; i++){
+                    ans += lengthOf(types[i], lengths[i]);
+                    if(nullMask & (1 << (31 - i)))
+                        ans++;
+            }
+            return ans;
         }
 };
 

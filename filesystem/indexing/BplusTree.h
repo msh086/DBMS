@@ -51,7 +51,7 @@ class BplusTree{
             for(int i = 0; i < MAX_COL_NUM; i++){
                 if(header->attrType[i] != DataType::NONE){
                     header->recordLenth += DataType::lengthOf(header->attrType[i], header->attrLenth[i]);
-                    if(header->nullMask & (128 >> i))
+                    if(header->nullMask & (1 << (31 - i)))
                         header->recordLenth++;
                     colNum++;
                 }

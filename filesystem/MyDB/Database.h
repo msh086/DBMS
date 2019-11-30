@@ -41,6 +41,12 @@ class Database{
 
 
     public:
+
+        Database(const char* databaseName){
+            memcpy(name, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
+            // TODO the DB reserved file ?
+        }
+
         void CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
             //TODO : check on header validity?
             bool createret = fm->createFile(tablename);
@@ -59,14 +65,16 @@ class Database{
             buffer[header->GetLenth()] = 128; // manually set the first bit in bitmap to 1
             header->recordNum = 1;
             header->exploitedNum = 1;
-            uchar* defaultBuf = new uchar[PAGE_SIZE]{};
-            if(header->defaultKeyMask)
-                memcpy(defaultBuf, defaultRecord, header->recordLenth);
-            int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
-            delete[] defaultBuf;
-            if(defaultret != 0)
-                printf("In Database::CreateTable, cannot write default record\n");
-            
+
+            if(header->defaultKeyMask){ // insert the default record. Note that even there is no default record, page 1 is still seen as occupied
+                uchar* defaultBuf = new uchar[PAGE_SIZE]{};
+                    memcpy(defaultBuf, defaultRecord, header->recordLenth);
+                int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
+                delete[] defaultBuf;
+                if(defaultret != 0)
+                    printf("In Database::CreateTable, cannot write default record\n");
+            }
+
             header->ToString(buffer);
             int writeret = fm->writePage(fid, 0, (BufType)buffer, 0);
             delete[] buffer;
@@ -128,6 +136,17 @@ class Database{
             }
             else
                 printf("No table named %.*s\n", MAX_TABLE_NAME_LEN, tablename);
+        }
+
+        /**
+         * 关闭这个数据库
+        */
+        void Close(){
+            // TODO
+        }
+
+        const char* GetName(){
+            return name;
         }
 };
 BufPageManager* Database::bpm = BufPageManager::Instance();
