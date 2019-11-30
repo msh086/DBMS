@@ -35,13 +35,329 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 %token 	ALTER		ADD			RENAME	DESC
 %token	INDEX		AND			DATE 	FLOAT
 %token	FOREIGN		REFERENCES	NUMERIC	DECIMAL
+%token 	ON
 // 以上是SQL关键字
 %token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
 %token 	IDENTIFIER	GE			LE 			NE
-%token	'+'	'-'	'*'	'/' '(' ')' '>' '<' '=' ','
+%token	'+'	'-'	'*'	'/' '(' ')' '>' '<' '=' ',' '.'
 
 %%
 
+Stmt		:	SysStmt ';'
+				{
+					printf("sys\n");
+				}
+			| 	DbStmt ';'
+				{
+					printf("db\n");
+				}
+			| 	TbStmt ';'
+				{
+					printf("tb\n");
+				}
+			|	 IdxStmt ';'
+				{
+					printf("idx\n");
+				}
+			| 	AlterStmt ';'
+				{
+					printf("alter\n");
+				}
+			;
+
+SysStmt		:	SHOW DATABASES
+				{
+					printf("show db\n");
+				}
+			;
+
+DbStmt		:	CREATE DATABASE IDENTIFIER
+				{
+					printf("create db\n");
+				}
+			|	DROP DATABASE IDENTIFIER
+				{
+					printf("drop db\n");
+				}
+			|	USE IDENTIFIER
+				{
+					printf("use db\n");
+				}
+			|	SHOW TABLES
+				{
+					printf("show tb\n");
+				}
+			;
+
+TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
+				{
+					printf("create tb\n");
+				}
+			|	DROP TABLE IDENTIFIER
+				{
+					printf("drop tb\n");
+				}
+			|	DESC IDENTIFIER
+				{
+					printf("desc tb\n");
+				}
+			|	INSERT INTO IDENTIFIER VALUES '(' valueLists ')' // valueLists = '(' valueList ')' (',' '(' valueList ')')*, 用于一次插入多条记录
+				{
+					printf("insert db\n");
+				}
+			|	DELETE FROM IDENTIFIER WHERE whereClause
+				{
+					printf("delete tb\n");
+				}
+			|	UPDATE IDENTIFIER SET setClause WHERE whereClause
+				{
+					printf("update tb\n");
+				}
+			| 	SELECT selector FROM IdList WHERE whereClause
+				{
+					printf("select tb\n");
+				}
+			;
+
+IdxStmt		:	CREATE INDEX IDENTIFIER ON IDENTIFIER '(' IdList ')'
+				{
+					printf("create idx\n");
+				}
+			|	DROP INDEX IDENTIFIER
+				{
+					printf("drop idx\n");
+				}
+			|	ALTER TABLE IDENTIFIER ADD INDEX IDENTIFIER '(' IdList ')'
+				{
+					printf("alter add idx\n");
+				}
+			|	ALTER TABLE IDENTIFIER DROP INDEX IDENTIFIER
+				{
+					printf("alter drop idx\n");
+				}
+			;
+
+AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
+				{
+					printf("alter add col\n");
+				}
+			;	// more!
+
+// fieldList 是建表时使用的
+fieldList	:	fieldList ',' field
+				{
+					printf("fieldList recur\n");
+				}
+			|	field
+				{
+					printf("fieldList base\n");
+				}
+			;
+
+// field可以组成fieldList用于建表,也可以在alter add里面用于增加列
+field		:	IDENTIFIER type
+				{
+					printf("id type\n");
+				}
+			|	IDENTIFIER type NOT NULL
+				{
+					printf("not null\n");
+				}
+			|	IDENTIFIER type DEFAULT value
+				{
+					printf("default\n");
+				}
+			|	IDENTIFIER type NOT NULL DEFAULT value
+				{
+					printf("not null default\n");
+				}
+			|	PRIMARY KEY '(' IdList ')'
+				{
+					printf("primary key\n");
+				}
+			|	FOREIGN KEY '(' IDENTIFIER ')' REFERENCES IDENTIFIER '(' IDENTIFIER ')'
+				{
+					printf("foreign\n");
+				}
+			;
+
+type		:	INT
+				{
+					printf("type int\n");
+				}
+			|	DATE
+				{
+					printf("type data\n");
+				}
+			|	FLOAT
+				{
+					printf("type float\n");
+				}
+			|	CHAR '(' INT_LIT ')'
+				{
+					printf("char\n");
+				}
+			|	VARCHAR	'(' INT_LIT ')'
+				{
+					printf("varchar\n");
+				}
+			|	NUMERIC '(' INT_LIT ',' INT_LIT ')'
+				{
+					printf("numeric\n");
+				}
+			|	DECIMAL '(' INT_LIT ',' INT_LIT ')'
+				{
+					printf("decimal\n");
+				}
+			;
+
+valueLists	:	'(' valueList ')'
+				{
+					printf("valueLists base\n");
+				}
+			|	valueLists ',' '(' valueList ')'
+				{
+					printf("valueLists recur\n");
+				}
+			;
+
+valueList	:	value
+				{
+					printf("valueList base\n");
+				}
+			|	valueList ',' value
+				{
+					printf("valueList recur\n");
+				}
+			;
+
+value		:	INT_LIT
+				{
+					printf("int lit\n");
+				}
+			|	FLOAT_LIT
+				{
+					printf("float lit\n");
+				}
+			|	DATE_LIT
+				{
+					printf("date lit\n");
+				}
+			| 	STRING_LIT
+				{
+					printf("string lit\n");
+				}
+			|	NULL
+				{
+					printf("null lit\n");
+				}
+			;
+
+whereClause	:	col op expr
+				{
+					printf("if op\n");
+				}
+			|	col IS NULL
+				{
+					printf("if null\n");
+				}
+			|	col IS NOT NULL
+				{
+					printf("if not null\n");
+				}
+			|	whereClause AND whereClause
+				{
+					printf("if and\n");
+				}
+			;
+
+col			:	IDENTIFIER
+				{
+					printf("simple col\n");
+				}
+			|	IDENTIFIER '.' IDENTIFIER
+				{
+					printf("compl col\n");
+				}
+			;
+
+op			:	GE
+				{
+					printf("GE\n");
+				}
+			|	LE
+				{
+					printf("LE\n");
+				}
+			|	NE
+				{
+					printf("NE\n");
+				}
+			|	'>'
+				{
+					printf("Gt\n");
+				}
+			|	'<'
+				{
+					printf("Lt\n");
+				}
+			|	'='
+				{
+					printf("eq\n");
+				}
+			;
+
+expr		:	value
+				{
+					printf("value expr\n");
+				}
+			|	col
+				{
+					printf("col expr\n");
+				}
+			;
+
+setClause	:	IDENTIFIER '=' value
+				{
+					printf("set\n");
+				}
+			|	setClause ',' IDENTIFIER '=' value
+				{
+					printf("multiple set\n");
+				}
+			;
+
+selector	:	'*'
+				{
+					printf("select *\n");
+				}
+			|	colList
+				{
+					printf("select colList\n");
+				}
+			;
+
+colList		:	col
+				{
+					printf("colList base\n");
+				}
+			| 	colList ',' col
+				{
+					printf("colList recur\n");
+				}
+			;
+
+IdList		:	IDENTIFIER
+				{
+					printf("IdList base\n");
+				}
+			|	IdList ',' IDENTIFIER
+				{
+					printf("IdList recur\n");
+				}
+			;
+
+/*
 file:								//文件，由记号流组成
 	tokenlist						//这里仅显示记号流中的ID
 	{
@@ -63,6 +379,7 @@ tokenlist:							//记号流，或者为空，或者由若干数字、标识符�
 	{
 		cout<<"op: "<<$2<<endl;		//$2是记号OPERATOR的属性，由于该记号是用%token<m_cOp>定义的，即约定对其用YYSTYPE的m_cOp属性，$2会被替换为yylval.m_cOp，已在lex里赋值
 	};
+*/
 
 %%
 
