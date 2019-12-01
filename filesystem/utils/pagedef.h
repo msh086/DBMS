@@ -64,7 +64,9 @@
 /**
  * Length of fragments to break varchar into, total length = 502 + 10 = 512 B
 */
-#define VARCHAR_FRAG_LEN 502
+#define VARCHAR_RECORD_LEN 512
+
+#define VARCHAR_FRAG_LEN (VARCHAR_RECORD_LEN - 10)
 
 #define DBMS_RESERVED_TABLE_NAME "ALL_DB"
 #define DB_RESERVED_TABLE_NAME "ALL_TB"

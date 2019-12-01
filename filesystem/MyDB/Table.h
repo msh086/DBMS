@@ -143,6 +143,16 @@ class Table{
             header = new Header();
         }
 
+        // load a table instance from an OPENDED table file
+        Table(int fid, const char* tableName){
+            header = new Header();
+            this->fid = fid;
+            headerBuf = (uchar*)bpm->getPage(fid, 0, headerIdx);
+            bpm->access(headerIdx);
+            header->FromString(headerBuf);
+            strncpy(this->tablename, tableName, strnlen(tableName, MAX_TABLE_NAME_LEN));
+        }
+
         ~Table(){
             delete header;
         }
@@ -224,7 +234,7 @@ class Table{
         /**
          * Caution, this action writes back data not only in this table, but all the tables
         */
-        static void WriteBack(){
+        static void WriteBack(){ // TODO write back only pages related to this table
             bpm->close();
         }
 

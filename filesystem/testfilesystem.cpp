@@ -33,6 +33,12 @@
 
 using namespace std;
 int main() {
+	// int mkdirRet = mkdir("folder", S_IRWXU | S_IRWXG | S_IRWXO);
+	// int rmdirRet = rmdir("folder");
+	// printf("mkDir ret: %d, rmDir ret: %d\n", mkdirRet, rmdirRet);
+	// FileManager::Instance()->createFile("./folder/file.type");
+	return 0;
+
 
 	Database* db = new Database("db");
 	Header* header = new Header();

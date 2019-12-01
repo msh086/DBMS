@@ -41,7 +41,7 @@ class Scanner{
         Record* NextRecord(Record* rec){
             if(mode == uninitialized){
                 printf("uninitialized scanner\n");
-                return;
+                return nullptr;
             }
             while(table->NextRecord(*rid)){
                 record = table->GetRecord(*rid, rec); // Memory needs to be released

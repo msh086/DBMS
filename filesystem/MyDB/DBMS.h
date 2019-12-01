@@ -3,7 +3,7 @@
 #include "../utils/pagedef.h"
 #include "Database.h"
 #include "Scanner.h"
-#include "../RM/MathUtils.h"
+#include "../RM/SimpleUtils.h"
 // 一个DBMS内可以存放多个database
 class DBMS{
     private:
@@ -37,6 +37,16 @@ class DBMS{
             currentDB->Close();
             delete currentDB;
             currentDB = nullptr;
+        }
+
+        // 新建目录
+        bool createDir(const char* dirName){
+            return mkdir(dirName, S_IRWXU | S_IRWXG | S_IRWXO) == 0;
+        }
+
+        // 删除目录
+        bool removeDir(const char* dirName){
+            return rmdir(dirName) == 0;
         }
 
     public:
@@ -103,31 +113,47 @@ class DBMS{
         
         /**
          * 试图创建名为databaseName的数据库，如果已经存在，返回false,否则将其插入至DBMS_RESERVED_TABLE_NAME并返回true
+         * 非法名字长度（0或者>MAX_DB_NAME_LEN)由frontend检查
         */
         bool CreateDatabase(const char* databaseName){
+            char buf[MAX_DB_NAME_LEN] = "";
+            memcpy(buf, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
             if(databaseExists(databaseName))
                 return false;
+            createDir(databaseName);
             tb->InsertRecord((const uchar*)databaseName, rid);
             return true;
         }
 
+        // 使用数据库
+        // 非法名字长度（0或>MAX_DB_NAME_LEN）由frontend检查
+        // 不存在时返回nullptr
         Database* UseDatabase(const char* databaseName){
             if(databaseExists(databaseName)){
-                if(currentDB) // close the open database
-                    closeCurrentDatabase();
+                if(currentDB){ // there is an open database
+                    if(!identical(databaseName, DBMS_RESERVED_TABLE_NAME, MAX_DB_NAME_LEN)) // switch to another database
+                        closeCurrentDatabase();
+                    else // target database already opened
+                        return currentDB;
+                }
+                // no db is open or the opened db is not the target
                 currentDB = new Database(databaseName);
                 // TODO ???
+                return currentDB;
             }
             else
                 return nullptr;
         }
 
+        // 删除数据库
+        // 非法名字长度由frontend检查
+        // 不存在时返回false
         bool DropDatabase(const char* databaseName){
-            int len = strnlen(databaseName, MAX_DB_NAME_LEN);
             if(databaseExists(databaseName)){
-                if(currentDB && strncmp(currentDB->GetName(), databaseName, len)) // 要被删除的数据库已经打开
+                if(currentDB && identical(databaseName, DBMS_RESERVED_TABLE_NAME, MAX_DB_NAME_LEN)) // 要被删除的数据库已经打开
                     closeCurrentDatabase();
                 tb->DeleteRecord(*rec->GetRid()); // 如果databaseExists返回true，对应记录的RID和数据会被存到rec里
+                // TODO delete file and folder
                 return true;
             }
             else

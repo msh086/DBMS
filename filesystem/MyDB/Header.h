@@ -24,8 +24,8 @@ class Header : public BaseHeader{
         // For varchar no longer than 254 bytes, they can be stored in-place like chars, the length of the attribute is its actual size(0~254)
         // For varchar longer than this limit, we can do the following thing:
         // In a global table VARCHAR_TB, break a varchar into parts of VARCHAR_FRAG_LEN bytes and store a varchar as a linked list
-        // A record in VARCHAR_TB looks like [(varchar fragment data), nextPage, nextSlot, length, isDefault].
-        // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 2 (8192B = 2^13, so length can be recorded in 14 bits; isDefault flag needs only one bit)
+        // A record in VARCHAR_TB looks like [(varchar fragment data), nextPage, nextSlot, length].
+        // So record length is VARCHAR_FRAG_LEN + 4 + 4 + 2
         // While in {tablename}, only the RID of the head record in VARCHAR_TB is stored, which requires 8B
         // a value of 255 in attrLenth indicates a varchar no shorter than 255 bytes
         // We can reserve VARCHAR_DB as a privileged table name and throw an exception when user tries to create, access or delete it.

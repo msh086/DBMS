@@ -111,7 +111,7 @@ public:
 	 * @函数名openFile
 	 * @参数name:文件名
 	 * @参数fileID:函数返回时，如果成功打开文件，那么为该文件分配一个id，记录在fileID中
-	 * 功能:打开文件
+	 * 功能:打开文件,如果文件不存在也不会创建，而是返回false
 	 * 返回:如果成功打开，在fileID中存储为该文件分配的id，返回true，否则返回false
 	 */
 	bool openFile(const char* name, int& fileID) {
