@@ -26,9 +26,9 @@ class BplusTreeNode{
 
         // data stored physically
 
-        uint parentPage = 0; // TODO 4 bytes
+        uint parentPage = 0; 
         uchar* data; // 8192B of data
-        ushort posInParent = -1; // TODO 2 bytes 
+        ushort posInParent = -1;  
 
         // check if data is still in buffer
         void checkBuffer(){
@@ -52,7 +52,7 @@ class BplusTreeNode{
 
     public:
         uchar type = 0; // 0 for Internal node, 1 for Leaf node
-        ushort size = 0; // number of keys in the node // TODO 2 bytes
+        ushort size = 0; // number of keys in the node 
 
         // runtime only
         uint ptrNum = 0; // number of ptrs in the node

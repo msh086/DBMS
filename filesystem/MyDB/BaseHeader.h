@@ -15,8 +15,8 @@ class BaseHeader{
         uint nullMask = -1; // ? 默认情况下，字段允许插入null值
         // change to ushort
         // attrLenth doesn't include the null byte
-        ushort attrLenth[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
-        uchar attrType[MAX_COL_NUM] = {0};
+        ushort attrLenth[MAX_COL_NUM] = {0};
+        uchar attrType[MAX_COL_NUM] = {0}; // The number of attributes equals to the number of non-zero elements in this array
         virtual void ToString(void* dst) = 0;
         virtual void FromString(const void* src) = 0;
         virtual int GetLenth() = 0;

@@ -34,37 +34,57 @@
 #define DEBUG_DELETE 0
 #define DEBUG_ERASE 1
 #define DEBUG_NEXT 1
-/*
+/**
  * 一个表中列的上限
  */
 #define MAX_COL_NUM 31
-/*
+/**
  * 数据库中表的个数上限
+ * 为什么是31而非32: 为null留一个编码,表示非0-30号表中的任一个
  */
 #define MAX_TB_NUM 31
+/**
+ * 表示对应的table为null
+*/
+#define TB_ID_NONE 31
 
 //below macros are added by msh
 /**
  * Max string length for an attribute
 */
-#define MAX_ATTRI_NAME_LEN 64
+#define MAX_ATTRI_NAME_LEN 32
 /**
  * Max string length for a database name
 */
-#define MAX_DB_NAME_LEN 64
+#define MAX_DB_NAME_LEN 32
 /**
  * Max string length for a table name
 */
-#define MAX_TABLE_NAME_LEN 64
+#define MAX_TABLE_NAME_LEN 32
 /**
- * Max times a table can be referrence as a foreign key source
- * P.S. In fact, MAX_FOREIGN_TIME is always no greater than MAX_TB_NUM - 1
+ * Max string length for a constraint
 */
-#define MAX_FOREIGN_TIME 30
+#define MAX_CONSTRAIN_NAME_LEN 16
+/**
+ * Max times a table can be referrenced as a foreign key source
+*/
+#define MAX_FK_MASTER_TIME 30
+/**
+ * Max number of foreign key constraints a table can have
+*/
+#define MAX_REF_SLAVE_TIME 16
 /**
  * Length of fragments to break varchar into, total length = 502 + 10 = 512 B
 */
 #define VARCHAR_RECORD_LEN 512
+/**
+ * Max number of indexes a table can have
+*/
+#define MAX_INDEX_NUM 16
+/**
+ * Max string length for a index
+*/
+#define MAX_INDEX_NAME_LEN 16
 
 #define VARCHAR_FRAG_LEN (VARCHAR_RECORD_LEN - 10)
 

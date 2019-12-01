@@ -32,16 +32,50 @@ class Header : public BaseHeader{
         // ushort attrLenth[MAX_COL_NUM] = {0}; // ? updated for ushort
         // uchar attrType[MAX_COL_NUM] = {0}; // number of attributes in the table = positive values in this array
         uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
-        uchar foreignTable[MAX_COL_NUM][MAX_TABLE_NAME_LEN] = {{0}};
-        uchar foreignKeyID[MAX_COL_NUM]={0};
-        uchar refTables[MAX_FOREIGN_TIME][MAX_TABLE_NAME_LEN]={0};
+        /* 外键约束 */
+        // 引用别的表的ID
+        uchar fkMaster[MAX_REF_SLAVE_TIME] = {0}; // 用表的id代替表名来节省空间
+        // 别的表中被引用列的ID
+        uint masterKeyID[MAX_REF_SLAVE_TIME] = {0}; // 一个uint是一个32bit位图
+        // 本表中涉及到的列的ID
+        uint slaveKeyID[MAX_REF_SLAVE_TIME] = {0};
+        // 外键约束的名称
+        uchar constraintName[MAX_REF_SLAVE_TIME][MAX_CONSTRAIN_NAME_LEN] = {{0}};
+        // 被别的表的外键约束引用
+        uchar fkSlave[MAX_FK_MASTER_TIME]={0};
+        /* 索引 */
+        // 索引名字
+        uchar indexName[MAX_INDEX_NUM][MAX_INDEX_NAME_LEN] = {{0}};
+        // 索引列ID
+        uint indexID[MAX_INDEX_NUM] = {0};
+        // b+树的RID
+        uint bpTreeRID[MAX_INDEX_NUM][2] = {{0}};
 
-        const static int lenth = sizeof(uint) * 8 +
-            sizeof(ushort) * MAX_COL_NUM +
-            MAX_COL_NUM * MAX_ATTRI_NAME_LEN +
-            MAX_COL_NUM * MAX_TABLE_NAME_LEN +
-            MAX_COL_NUM * 2 +
-            MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN; // updated for ushort
+        /* header的长度 */
+        const static int lenth = sizeof(uint) * 8 + // 8 * uint
+            sizeof(ushort) * MAX_COL_NUM + // attrLenth
+            MAX_COL_NUM + // attrType
+            MAX_COL_NUM * MAX_ATTRI_NAME_LEN + // attrName
+            MAX_REF_SLAVE_TIME + // fkMaster
+            MAX_REF_SLAVE_TIME * sizeof(uint) * 2 + // masterKeyID, slaveKeyID
+            MAX_REF_SLAVE_TIME * MAX_CONSTRAIN_NAME_LEN + // constraintName
+            MAX_FK_MASTER_TIME + // fkSlave
+            MAX_INDEX_NUM * MAX_INDEX_NAME_LEN + // indexName
+            MAX_INDEX_NUM * sizeof(uint) + // indexID
+            MAX_INDEX_NUM * 2 * sizeof(uint); // bpTreeRID
+        
+        /* 外键部分的offset */
+        const static int fkOffset = sizeof(uint) * 8 + // 8 * uint
+            sizeof(ushort) * MAX_COL_NUM + // attrLenth
+            MAX_COL_NUM + // attrType
+            MAX_COL_NUM * MAX_ATTRI_NAME_LEN; // attrName
+        
+        /* 索引部分的offset */
+        const static int idxOffset = fkOffset +
+            MAX_REF_SLAVE_TIME + // fkMaster
+            MAX_REF_SLAVE_TIME * sizeof(uint) * 2 + // masterKeyID, slaveKeyID
+            MAX_REF_SLAVE_TIME * MAX_CONSTRAIN_NAME_LEN + // constraintName
+            MAX_FK_MASTER_TIME;// fkSlave
 
 #ifdef DEBUG
         void DebugPrint()override{
@@ -65,17 +99,17 @@ class Header : public BaseHeader{
             for(int i = 0; i < MAX_COL_NUM; i ++)
                 printf("(%d, %.*s) ", i, MAX_ATTRI_NAME_LEN, attrName[i]);
             printf("\n");
-            printf("***foreignTable:\n    ");
+            printf("***fkMaster:\n    ");
             for(int i = 0; i < MAX_COL_NUM; i++)
-                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, foreignTable[i]);
+                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, fkMaster[i]);
             printf("\n");
-            printf("***foreignKeyID:\n    ");
+            printf("***masterKeyID:\n    ");
             for(int i = 0; i < MAX_COL_NUM; i++)
-                printf("(%d, %d) ", i, foreignKeyID[i]);
+                printf("(%d, %d) ", i, masterKeyID[i]);
             printf("\n");
-            printf("***refTables:\n    ");
-            for(int i = 0; i < MAX_FOREIGN_TIME; i++)
-                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, refTables[i]);
+            printf("***fkSlave:\n    ");
+            for(int i = 0; i < MAX_FK_MASTER_TIME; i++)
+                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, fkSlave[i]);
             printf("\n");
             printf("<<<End of table\n");
             // TODO: more information?
@@ -106,14 +140,29 @@ class Header : public BaseHeader{
 
             memcpy(charPtr, attrName, MAX_COL_NUM * MAX_ATTRI_NAME_LEN);
             charPtr += MAX_COL_NUM * MAX_ATTRI_NAME_LEN;
+            // foreign key part
+            memcpy(charPtr, fkMaster, MAX_REF_SLAVE_TIME);
+            charPtr += MAX_REF_SLAVE_TIME;
 
-            memcpy(charPtr, foreignTable, MAX_COL_NUM * MAX_TABLE_NAME_LEN);
-            charPtr += MAX_COL_NUM * MAX_TABLE_NAME_LEN;
+            memcpy(charPtr, masterKeyID, MAX_REF_SLAVE_TIME * sizeof(uint));
+            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
 
-            memcpy(charPtr, foreignKeyID, MAX_COL_NUM);
-            charPtr += MAX_COL_NUM;
+            memcpy(charPtr, slaveKeyID, MAX_REF_SLAVE_TIME * sizeof(uint));
+            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
 
-            memcpy(charPtr, refTables, MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN);
+            memcpy(charPtr, constraintName, MAX_REF_SLAVE_TIME * MAX_CONSTRAIN_NAME_LEN);
+            charPtr += MAX_REF_SLAVE_TIME * MAX_CONSTRAIN_NAME_LEN;
+            // index part
+            memcpy(charPtr, fkSlave, MAX_FK_MASTER_TIME);
+            charPtr += MAX_FK_MASTER_TIME;
+
+            memcpy(charPtr, indexName, MAX_INDEX_NUM * MAX_INDEX_NAME_LEN);
+            charPtr += MAX_INDEX_NUM * MAX_INDEX_NAME_LEN;
+
+            memcpy(charPtr, indexID, MAX_INDEX_NUM * sizeof(uint));
+            charPtr += MAX_INDEX_NUM * sizeof(uint);
+
+            memcpy(charPtr, bpTreeRID, MAX_INDEX_NUM * sizeof(uint) * 2);
         }
         void FromString(const void* src) override{
             uint *uintPtr = (uint*)src;
@@ -128,7 +177,7 @@ class Header : public BaseHeader{
             uintPtr += 8;
 
             uchar *charPtr = (uchar*)uintPtr; // updated for ushort
-            memcpy(attrLenth, charPtr, MAX_COL_NUM * sizeof(uint));
+            memcpy(attrLenth, charPtr, MAX_COL_NUM * sizeof(ushort));
             charPtr += sizeof(ushort) * MAX_COL_NUM;
 
             memcpy(attrType, charPtr, MAX_COL_NUM);
@@ -136,14 +185,29 @@ class Header : public BaseHeader{
 
             memcpy(attrName, charPtr, MAX_COL_NUM * MAX_ATTRI_NAME_LEN);
             charPtr += MAX_COL_NUM * MAX_ATTRI_NAME_LEN;
+            // foreign key part
+            memcpy(fkMaster, charPtr, MAX_REF_SLAVE_TIME);
+            charPtr += MAX_REF_SLAVE_TIME;
 
-            memcpy(foreignTable, charPtr, MAX_COL_NUM * MAX_TABLE_NAME_LEN);
-            charPtr += MAX_COL_NUM * MAX_TABLE_NAME_LEN;
+            memcpy(masterKeyID, charPtr, MAX_REF_SLAVE_TIME * sizeof(uint));
+            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
 
-            memcpy(foreignKeyID, charPtr, MAX_COL_NUM);
-            charPtr += MAX_COL_NUM;
+            memcpy(slaveKeyID, charPtr, MAX_REF_SLAVE_TIME * sizeof(uint));
+            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
 
-            memcpy(refTables, charPtr, MAX_FOREIGN_TIME * MAX_TABLE_NAME_LEN);
+            memcpy(constraintName, charPtr, MAX_REF_SLAVE_TIME * MAX_CONSTRAIN_NAME_LEN);
+            charPtr += MAX_REF_SLAVE_TIME * MAX_CONSTRAIN_NAME_LEN;
+            // index part
+            memcpy(fkSlave, charPtr, MAX_FK_MASTER_TIME);
+            charPtr += MAX_FK_MASTER_TIME;
+
+            memcpy(indexName, charPtr, MAX_INDEX_NUM * MAX_INDEX_NAME_LEN);
+            charPtr += MAX_INDEX_NUM * MAX_INDEX_NAME_LEN;
+
+            memcpy(indexID, charPtr, MAX_INDEX_NUM * sizeof(uint));
+            charPtr += MAX_INDEX_NUM * sizeof(uint);
+
+            memcpy(bpTreeRID, charPtr, MAX_INDEX_NUM * sizeof(uint) * 2);
         }
 };
 

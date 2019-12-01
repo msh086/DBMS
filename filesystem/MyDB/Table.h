@@ -3,6 +3,7 @@
 #include "Header.h"
 #include "../RM/Record.h"
 #include "../bufmanager/BufPageManager.h"
+#include "../RM/SimpleUtils.h"
 class DBMS;
 class Database;
 class Scanner;
@@ -229,6 +230,125 @@ class Table{
             tmpBuf = bpm->reusePage(fid, record.GetRid()->GetPageNum(), tmpIdx, tmpBuf);
             memcpy(tmpBuf + record.GetRid()->GetSlotNum() * header->recordLenth, record.GetData(), header->recordLenth);
             bpm->markDirty(tmpIdx);
+        }
+
+        /**
+         * Add foreign constraint, return if success
+         * Same constraint conditions with different names are permitted
+         * Checked: existing constraints with same name
+         * ! Unchecked: primary key, conflicts with existing records
+        */
+        int AddFKMaster(uchar masterID, uint slaveKeys, uint masterKeys, const char* fkName){
+            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            // the start of constraintName
+            uchar* fkPart = headerBuf + Header::fkOffset + MAX_REF_SLAVE_TIME * 9;
+            int pos = 0;
+            for(; pos < MAX_REF_SLAVE_TIME; pos++){
+                if(!strnlen((char*)fkPart, MAX_CONSTRAIN_NAME_LEN)) // all existing index names are checked
+                    break;
+                if(identical((char*)fkPart, fkName, MAX_CONSTRAIN_NAME_LEN))
+                    return 1; // existing fk with the same name
+                fkPart += MAX_CONSTRAIN_NAME_LEN;
+            }
+            if(pos == MAX_REF_SLAVE_TIME)
+                return 2;
+            // update constraint name
+            memcpy(fkPart, fkName, strnlen(fkName, MAX_CONSTRAIN_NAME_LEN));
+            fkPart = headerBuf + Header::fkOffset;
+            // update master table ID
+            *fkPart = masterID;
+            // update master key ID
+            fkPart += MAX_REF_SLAVE_TIME;
+            ((uint*)fkPart)[pos] = masterKeys;
+            // update slave key ID
+            fkPart += MAX_REF_SLAVE_TIME * sizeof(uint);
+            ((uint*)fkPart)[pos] = slaveKeys;
+            // sync
+            bpm->markDirty(headerIdx);
+            return 0;
+        }
+
+        /**
+         * Remove foreign constraint master, return if success
+        */
+        bool RemoveFKMaster(const char* fkName){
+            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            uchar* fkPart = headerBuf + Header::fkOffset + MAX_REF_SLAVE_TIME * 9;
+            int pos = 0;
+            for(; pos < MAX_REF_SLAVE_TIME; pos++){
+                if(!strnlen((char*)fkPart, MAX_CONSTRAIN_NAME_LEN)) // all existing index names are checked
+                    return false;
+                if(identical((char*)fkPart, fkName, MAX_CONSTRAIN_NAME_LEN))
+                    break;
+                fkPart += MAX_CONSTRAIN_NAME_LEN;
+            }
+            if(pos == MAX_REF_SLAVE_TIME)
+                return false;
+            int probe = pos + 1;
+            uchar* probePtr = fkPart;
+            while(probe < MAX_REF_SLAVE_TIME){
+                if(!strnlen((char*)probePtr, MAX_CONSTRAIN_NAME_LEN))
+                    break;
+                probe++;
+                probePtr += MAX_CONSTRAIN_NAME_LEN;
+            }
+            // now probe is the total num of fks in the header
+            // update fk masters
+            memcpy(fkPart, fkPart + MAX_REF_SLAVE_TIME, (probe - pos - 1) * MAX_CONSTRAIN_NAME_LEN);
+            memset(probePtr - MAX_CONSTRAIN_NAME_LEN, 0, MAX_CONSTRAIN_NAME_LEN);
+            // update master ID
+            fkPart = headerBuf + Header::fkOffset;
+            memcpy(fkPart + pos, fkPart + pos + 1, probe - pos - 1);
+            memset(fkPart + probe - 1, 0, 1);
+            // update master key ID
+            fkPart += MAX_REF_SLAVE_TIME * sizeof(uint);
+            memcpy(fkPart + pos * sizeof(uint), fkPart + (pos + 1) * sizeof(uint), (probe - pos - 1) * sizeof(uint));
+            memset(fkPart + (probe - 1) * sizeof(uint), 0, sizeof(uint));
+            // update slave key ID
+            fkPart += MAX_REF_SLAVE_TIME * sizeof(uint);
+            memcpy(fkPart + pos * sizeof(uint), fkPart + (pos + 1) * sizeof(uint), (probe - pos - 1) * sizeof(uint));
+            memset(fkPart + (probe - 1) * sizeof(uint), 0, sizeof(uint));
+            // sync
+            bpm->markDirty(headerIdx);
+            return true;
+        }
+
+        /**
+         * Remove foreign constraint slave
+        */
+        bool AddFKSlave(uchar slaveID){
+            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            uchar* slaves = headerBuf + Header::idxOffset - MAX_FK_MASTER_TIME;
+            int pos = 0;
+            while(pos < MAX_FK_MASTER_TIME){
+                if(slaves[pos] == TB_ID_NONE)
+                    return false;
+                if(slaves[pos] == slaveID)
+                    break;
+                pos++;
+            }
+            if(pos == MAX_FK_MASTER_TIME)
+                return false;
+            // get the total num of slaves
+            int probe = pos + 1;
+            while(probe < MAX_FK_MASTER_TIME)
+                if(slaves[pos] == TB_ID_NONE)
+                    break;
+                else
+                    probe++;
+            // update slaves
+            memcpy(slaves + pos, slaves + pos + 1, probe - pos - 1);
+            memset(slaves + probe - 1, TB_ID_NONE, 1);
+            // sync
+            bpm->markDirty(headerIdx);
+            return true;
+        }
+
+        /**
+         * Remove foreign constraint slave
+        */
+        bool RemoveFKSlave(uchar slaveID){
+            // TODO
         }
 
         /**

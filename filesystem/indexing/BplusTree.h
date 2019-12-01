@@ -158,7 +158,6 @@ class BplusTree{
             CalcColNum();
             internalMinKey = (header->internalCap - 1) >> 1;
             leafMinKey = (header->leafCap + 1) >> 1;
-            // TODO: init root ?
             root = GetTreeNode(nullptr, header->rootPage);
         }
 

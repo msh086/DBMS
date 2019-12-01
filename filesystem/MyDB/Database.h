@@ -76,7 +76,6 @@ class Database{
 
         Database(const char* databaseName){
             memcpy(name, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
-            // TODO the DB reserved file ?
             int fid_info, fid_idx, fid_varchar;
             bool openret_info = fm->openFile(DB_RESERVED_TABLE_NAME, fid_info),
                 openret_idx = fm->openFile(DB_RESERVED_TABLE_NAME, fid_idx),
