@@ -39,9 +39,17 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 // 以上是SQL关键字
 %token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
 %token 	IDENTIFIER	GE			LE 			NE
-%token	'+'	'-'	'*'	'/' '(' ')' '>' '<' '=' ',' '.'
+%token	'+'	'-'	'*'	'/' '(' ')' '>' '<' '=' ',' '.' ';'
 
 %%
+
+Start		:	Stmt
+				{
+					printf("From yacc: start parsing\n");
+					if(!Global::errors.empty()){ // errors from lexer
+						YYABORT;
+					}
+				}
 
 Stmt		:	SysStmt ';'
 				{
@@ -387,6 +395,7 @@ void yyerror(const char *s)			//当yacc遇到语法错误时，会回调yyerror�
 	printf("Error: %s\n", s);					//直接输出错误信息
 }
 
+/*
 int main()							//程序主函数，这个函数也可以放到其它.c, .cpp文件里
 {
 	const char* sFile="file.txt";	//打开要读取的文本文件
@@ -407,3 +416,4 @@ int main()							//程序主函数，这个函数也可以放到其它.c, .cpp�
 
 	return 0;
 }
+*/

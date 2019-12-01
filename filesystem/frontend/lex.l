@@ -34,6 +34,10 @@ extern "C"				//为了能够在C++程序里面调用C函数，必须把每一个
 
 /* 在前两段中写注释时,必须用块注释.如果要用行注释,这一行不能以//开头,要加缩进 */
 /*非数字由大小写字母、下划线组成*/
+
+/* 换行符，表示输入结束 */
+newline		(\r|\n|\r\n)
+
 nondigit	([_A-Za-z])
 
 /*一位数字，可以是0到9*/
@@ -52,7 +56,7 @@ date  		({digit}{1,4}-{digit}{1,2}-{digit}{1,2});
 identifier	([A-Za-z][_0-9a-zA-Z]*)
 
 /*一个或一段连续的空白符*/
-blank_chars	([ \f\r\t\v]+)
+blank_chars	([ \f\t\v]+)
 
 /* 合法的转义字符 */
 ESC          ("\\"[nrt\"\\])
@@ -61,7 +65,7 @@ ESC          ("\\"[nrt\"\\])
 BAD_ESC      ("\\"[^nrt\"\\])
 
 /* 单字符运算符 */
-SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|".")
+SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 
 /*下面%%后开始第2段：规则段*/
 %%
@@ -111,6 +115,10 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|".")
 "<="			{Global::pos += yyleng; return LE;}
 "<>"			{Global::pos += yyleng; return NE;}
 {SIMPLE_OP}		{Global::pos += yyleng; return yytext[0];}
+
+{newline}		{
+					// yyterminate();
+				}
 
 {date}			{
 					yylval.str.assign(yytext, yyleng);
@@ -172,15 +180,17 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|".")
 					Global::pos++;
 				}
 
+
 .				{							//.表示除\n以外的其它字符，注意这个规则要放在最后，因为一旦匹配了.就不会匹配后面的规则了(以其它状态<>开头的规则除外)
 					Global::errors.push_back(Global::pos); // undefined
 					Global::pos++;
 				}
+
 %%
 
 //第3段：C函数定义段
 int yywrap(void)
 {
-	puts("-----the file is end");
+	puts("From flex: end of input");
 	return 1;								//返回1表示读取全部结束。如果要接着读其它文件，可以这里fopen该文件，文件指针赋给yyin，并返回0
 }
