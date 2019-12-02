@@ -1078,8 +1078,19 @@ bool Table::RemoveIndex(const char* idxName){
     }
     if(pos == idxCount) // not found
         return false;
+    // update index name, type: uchar[]
     memcpy(header->indexName[pos], header->indexName[pos + 1], (idxCount - pos - 1) * MAX_INDEX_NAME_LEN);
     memset(header->indexName[idxCount - 1], 0, MAX_INDEX_NAME_LEN);
+    // update index col ID, type: uint
+    memcpy(&header->indexID[pos], &header->indexID[pos + 1], (idxCount - pos - 1) * sizeof(uint));
+    header->indexID[idxCount - 1] = 0;
+    // remove tree
+    BplusTree* tree = new BplusTree(db->idx, header->bpTreePage[pos]);
+    tree->DeleteTreeFromDisk();
+    delete tree;
+    // update tree page info, type: uint
+    memcpy(&header->bpTreePage[pos], &header->bpTreePage[pos + 1], (idxCount - pos - 1) * sizeof(uint));
+    header->bpTreePage[idxCount - 1] = 0;
     // sync
     idxCount--;
     headerDirty = true;

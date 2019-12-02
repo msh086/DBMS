@@ -63,17 +63,17 @@ class Database{
     }
 
 
+    // 存储所有用户表
+    Table *info = nullptr;
     Scanner* infoScanner = nullptr;
     Record* rec = nullptr;
     RID* rid = nullptr;
+    // 存储archar
+    Table *varchar = nullptr;
 
     public:
-        // 存储所有用户表
-        Table *info = nullptr;
         // 存储索引节点
         Table *idx = nullptr;
-        // 存储archar
-        Table *varchar = nullptr;
 
         Database(const char* databaseName){
             memcpy(name, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));

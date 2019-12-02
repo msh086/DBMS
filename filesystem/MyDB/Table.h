@@ -4,6 +4,7 @@
 #include "../RM/Record.h"
 #include "../bufmanager/BufPageManager.h"
 #include "../RM/SimpleUtils.h"
+#include <vector>
 class DBMS;
 class Database;
 class Scanner;
@@ -27,6 +28,17 @@ class Table{
     int fkSlaveCount = 0;
     int idxCount = 0;
     bool headerDirty = false;
+
+    /**
+     * 用于跟踪tmpBuf和tmpIdx,以便针对性地释放缓存
+    */
+    struct BufTracker{
+        uint page;
+        int idx;
+        BufTracker(uint page, int idx):page(page), idx(idx){};
+    };
+
+    std::vector<BufTracker> trackers;
 
     //private helper methods
     /**
@@ -179,6 +191,7 @@ class Table{
             }
             tmpBuf = bpm->reusePage(fid, rid.GetPageNum(), tmpIdx, tmpBuf);
             bpm->access(tmpIdx);
+            trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
             ans->data = new uchar[header->recordLenth];
             memcpy(ans->data, ((uchar*)tmpBuf) + rid.GetSlotNum() * header->recordLenth, header->recordLenth);
             ans->id = new RID(rid.GetPageNum(), rid.GetSlotNum());
@@ -197,14 +210,11 @@ class Table{
             header->recordNum++;
             if(firstEmptySlot == header->exploitedNum)
                 header->exploitedNum++;
-            //* Update this when you need to change header's structure
-            ((uint*)headerBuf)[2] = header->recordNum;
-            ((uint*)headerBuf)[3] = header->exploitedNum;
-            // Deprecated: //// header->ToString(headerBuf);
-            bpm->markDirty(headerIdx);
+            headerDirty = true;
             //inserting the record
             UintToRID(firstEmptySlot, rid);
             tmpBuf = bpm->reusePage(fid, rid->PageNum, tmpIdx, tmpBuf);
+            trackers.push_back(BufTracker(rid->PageNum, tmpIdx));
             memcpy(tmpBuf + rid->SlotNum * header->recordLenth, data, header->recordLenth);
             bpm->markDirty(tmpIdx);
             return rid;
@@ -217,16 +227,13 @@ class Table{
             }
             //updating the header
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
             int slotNumber = RIDtoUint(&rid);
             clearBit(slotNumber);
             if(slotNumber == header->exploitedNum - 1)
                 header->exploitedNum--;
             header->recordNum--;
-            //* Update this when you need to change header's structure
-            ((uint*)headerBuf)[2] = header->recordNum;
-            ((uint*)headerBuf)[3] = header->exploitedNum;
-            // Deprecated: ////header->ToString(headerBuf);
-            bpm->markDirty(headerIdx);
+            headerDirty = true;
             //no need to clear the memory
         }
 
@@ -239,6 +246,7 @@ class Table{
                 return;
             }
             tmpBuf = bpm->reusePage(fid, record.GetRid()->GetPageNum(), tmpIdx, tmpBuf);
+            trackers.push_back(BufTracker(record.GetRid()->PageNum, tmpIdx));
             memcpy(tmpBuf + record.GetRid()->GetSlotNum() * header->recordLenth, record.GetData(), header->recordLenth);
             bpm->markDirty(tmpIdx);
         }
@@ -287,7 +295,8 @@ class Table{
          * Add foreign constraint, return if success
          * Same constraint conditions with different names are permitted
          * Checked: existing constraints with same name
-         * ! Unchecked: primary key, conflicts with existing records
+         * ! Unchecked: primary key
+         * TODO: conflicts with existing records
         */
         int AddFKMaster(uchar masterID, uint slaveKeys, uint masterKeys, const char* fkName){
             if(fkMasterCount == MAX_REF_SLAVE_TIME) // full
@@ -391,7 +400,13 @@ class Table{
                 header->ToString(headerBuf);
                 bpm->markDirty(headerIdx);
             }
-            bpm->close();
+            for(auto it = trackers.begin(); it != trackers.end(); it++){
+                int curPage ,curFid;
+                bpm->getKey(it->idx, curFid, curPage);
+                if(fid == curFid && it->page == curPage)
+                    bpm->writeBack(it->idx);
+            }
+            trackers.clear();
         }
 
         /**
