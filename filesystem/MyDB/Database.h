@@ -62,17 +62,18 @@ class Database{
         return true;
     }
 
-    // 存储所有用户表
-    Table *info = nullptr;
+
     Scanner* infoScanner = nullptr;
     Record* rec = nullptr;
     RID* rid = nullptr;
-    // 存储索引节点
-    Table *idx = nullptr;
-    // 存储archar
-    Table *varchar = nullptr;
 
     public:
+        // 存储所有用户表
+        Table *info = nullptr;
+        // 存储索引节点
+        Table *idx = nullptr;
+        // 存储archar
+        Table *varchar = nullptr;
 
         Database(const char* databaseName){
             memcpy(name, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
@@ -156,14 +157,14 @@ class Database{
                 printf("db varchar init success\n");
             }
             // load info from disk
-            info = new Table(fid_info, DB_RESERVED_TABLE_NAME);
+            info = new Table(fid_info, DB_RESERVED_TABLE_NAME, this);
             infoScanner = info->GetScanner(nullptr);
             rec = new Record();
             rid = new RID();
             // load idx from disk
-            idx = new Table(fid_idx, IDX_RESERVED_TABLE_NAME);
+            idx = new Table(fid_idx, IDX_RESERVED_TABLE_NAME, this);
             // load varchar from disk
-            varchar = new Table(fid_varchar, VARCHAR_RESERVED_TABLE_NAME);
+            varchar = new Table(fid_varchar, VARCHAR_RESERVED_TABLE_NAME, this);
         }
 
         void CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
@@ -225,15 +226,7 @@ class Database{
                 printf("In Database::OpenTable, cannot open file\n");
                 return nullptr;
             }
-            Table* ans = new Table();
-            int index;
-            BufType headerBuf = bpm->getPage(fid, 0, index);
-            bpm->access(index);
-            ans->header->FromString(headerBuf);
-            ans->fid = fid;
-            ans->headerIdx = index;
-            ans->headerBuf = (uchar*)headerBuf;
-            memcpy(ans->tablename, tablename, strlen(tablename));
+            Table* ans = new Table(fid, tablename, this);
             activeTables[activeTableNum++] = ans;
             return ans;
         }

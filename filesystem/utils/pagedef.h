@@ -39,6 +39,10 @@
  */
 #define MAX_COL_NUM 31
 /**
+ * 表示对应的column为null
+*/
+#define COL_ID_NONE 31
+/**
  * 数据库中表的个数上限
  * 为什么是31而非32: 为null留一个编码,表示非0-30号表中的任一个
  */
@@ -64,7 +68,7 @@
 /**
  * Max string length for a constraint
 */
-#define MAX_CONSTRAIN_NAME_LEN 16
+#define MAX_CONSTRAINT_NAME_LEN 16
 /**
  * Max times a table can be referrenced as a foreign key source
 */

@@ -16,9 +16,17 @@ class Table{
     char tablename[MAX_TABLE_NAME_LEN + 1] = "";
     int tmpIdx = 0;
     uchar* tmpBuf = nullptr;
+    Database* db = nullptr;
 
     static FileManager* fm;
     static BufPageManager* bpm;
+
+    // runtime variables
+    int colCount = 0;
+    int fkMasterCount = 0;
+    int fkSlaveCount = 0;
+    int idxCount = 0;
+    bool headerDirty = false;
 
     //private helper methods
     /**
@@ -63,6 +71,7 @@ class Table{
         int endByte = header->exploitedNum >> 3, endBit = header->exploitedNum & 7;
         if(startByte > endByte)
             return -1;
+        headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
         uchar* src = headerBuf + header->GetLenth();
         uchar allOnes = 255;
         //[(startBytes, startBit), (startByte, endBit))
@@ -145,13 +154,15 @@ class Table{
         }
 
         // load a table instance from an OPENDED table file
-        Table(int fid, const char* tableName){
+        Table(int fid, const char* tableName, Database* db){
             header = new Header();
             this->fid = fid;
             headerBuf = (uchar*)bpm->getPage(fid, 0, headerIdx);
             bpm->access(headerIdx);
             header->FromString(headerBuf);
             strncpy(this->tablename, tableName, strnlen(tableName, MAX_TABLE_NAME_LEN));
+            CalcColFkIdxCount();
+            this->db = db;
         }
 
         ~Table(){
@@ -232,6 +243,46 @@ class Table{
             bpm->markDirty(tmpIdx);
         }
 
+
+        /**
+         * Calc the number of columns, fk constraints and indexs
+        */
+        void CalcColFkIdxCount(){
+            colCount = 0;
+            for(int i = 0; i < MAX_COL_NUM; i++)
+                if(header->attrType[i] == DataType::NONE)
+                    break;
+                else
+                    colCount++;
+            fkMasterCount = 0;
+            for(int i = 0; i < MAX_REF_SLAVE_TIME; i++)
+                if(header->fkMaster[i] == TB_ID_NONE)
+                    break;
+                else
+                    fkMasterCount++;
+            fkSlaveCount = 0;
+            for(int i = 0; i < MAX_FK_MASTER_TIME; i++)
+                if(header->fkSlave[i] == TB_ID_NONE)
+                    break;
+                else
+                    fkSlaveCount++;
+            idxCount = 0;
+            for(int i = 0; i < MAX_INDEX_NUM; i++)
+                if(header->indexID[i] == 0)
+                    break;
+                else
+                    idxCount++;
+        }
+
+        // map the name of a column to its id
+        uchar IDofCol(const char* colName){
+            for(int i = 0; i < colCount; i++){
+                if(identical(colName, (char*)header->attrName[i], MAX_ATTRI_NAME_LEN))
+                    return i;
+            }
+            return COL_ID_NONE;
+        }
+
         /**
          * Add foreign constraint, return if success
          * Same constraint conditions with different names are permitted
@@ -239,32 +290,24 @@ class Table{
          * ! Unchecked: primary key, conflicts with existing records
         */
         int AddFKMaster(uchar masterID, uint slaveKeys, uint masterKeys, const char* fkName){
-            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-            // the start of constraintName
-            uchar* fkPart = headerBuf + Header::fkOffset + MAX_REF_SLAVE_TIME * 9;
-            int pos = 0;
-            for(; pos < MAX_REF_SLAVE_TIME; pos++){
-                if(!strnlen((char*)fkPart, MAX_CONSTRAIN_NAME_LEN)) // all existing index names are checked
-                    break;
-                if(identical((char*)fkPart, fkName, MAX_CONSTRAIN_NAME_LEN))
-                    return 1; // existing fk with the same name
-                fkPart += MAX_CONSTRAIN_NAME_LEN;
-            }
-            if(pos == MAX_REF_SLAVE_TIME)
+            if(fkMasterCount == MAX_REF_SLAVE_TIME) // full
                 return 2;
+            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            for(int i = 0; i < fkMasterCount; i++){
+                if(identical((char*)header->constraintName[i], fkName, MAX_CONSTRAINT_NAME_LEN))
+                    return 1; // existing fk with the same name
+            }
             // update constraint name
-            memcpy(fkPart, fkName, strnlen(fkName, MAX_CONSTRAIN_NAME_LEN));
-            fkPart = headerBuf + Header::fkOffset;
+            memcpy(header->constraintName[fkMasterCount], fkName, strnlen(fkName, MAX_CONSTRAINT_NAME_LEN));
             // update master table ID
-            *fkPart = masterID;
+            header->fkMaster[fkMasterCount] = masterID;
             // update master key ID
-            fkPart += MAX_REF_SLAVE_TIME;
-            ((uint*)fkPart)[pos] = masterKeys;
+            header->masterKeyID[fkMasterCount] = masterKeys;
             // update slave key ID
-            fkPart += MAX_REF_SLAVE_TIME * sizeof(uint);
-            ((uint*)fkPart)[pos] = slaveKeys;
+            header->slaveKeyID[fkMasterCount] = slaveKeys;
             // sync
-            bpm->markDirty(headerIdx);
+            headerDirty = true;
+            fkMasterCount++;
             return 0;
         }
 
@@ -273,74 +316,46 @@ class Table{
         */
         bool RemoveFKMaster(const char* fkName){
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-            uchar* fkPart = headerBuf + Header::fkOffset + MAX_REF_SLAVE_TIME * 9;
+            // uchar* fkPart = headerBuf + Header::fkOffset + MAX_REF_SLAVE_TIME * 9;
             int pos = 0;
-            for(; pos < MAX_REF_SLAVE_TIME; pos++){
-                if(!strnlen((char*)fkPart, MAX_CONSTRAIN_NAME_LEN)) // all existing index names are checked
-                    return false;
-                if(identical((char*)fkPart, fkName, MAX_CONSTRAIN_NAME_LEN))
+            for(; pos < fkMasterCount; pos++){
+                if(identical((char*)header->constraintName[pos], fkName, MAX_CONSTRAINT_NAME_LEN))
                     break;
-                fkPart += MAX_CONSTRAIN_NAME_LEN;
             }
-            if(pos == MAX_REF_SLAVE_TIME)
+            if(pos == fkMasterCount) // all is checked
                 return false;
-            int probe = pos + 1;
-            uchar* probePtr = fkPart;
-            while(probe < MAX_REF_SLAVE_TIME){
-                if(!strnlen((char*)probePtr, MAX_CONSTRAIN_NAME_LEN))
-                    break;
-                probe++;
-                probePtr += MAX_CONSTRAIN_NAME_LEN;
-            }
-            // now probe is the total num of fks in the header
-            // update fk masters
-            memcpy(fkPart, fkPart + MAX_REF_SLAVE_TIME, (probe - pos - 1) * MAX_CONSTRAIN_NAME_LEN);
-            memset(probePtr - MAX_CONSTRAIN_NAME_LEN, 0, MAX_CONSTRAIN_NAME_LEN);
-            // update master ID
-            fkPart = headerBuf + Header::fkOffset;
-            memcpy(fkPart + pos, fkPart + pos + 1, probe - pos - 1);
-            memset(fkPart + probe - 1, 0, 1);
-            // update master key ID
-            fkPart += MAX_REF_SLAVE_TIME * sizeof(uint);
-            memcpy(fkPart + pos * sizeof(uint), fkPart + (pos + 1) * sizeof(uint), (probe - pos - 1) * sizeof(uint));
-            memset(fkPart + (probe - 1) * sizeof(uint), 0, sizeof(uint));
-            // update slave key ID
-            fkPart += MAX_REF_SLAVE_TIME * sizeof(uint);
-            memcpy(fkPart + pos * sizeof(uint), fkPart + (pos + 1) * sizeof(uint), (probe - pos - 1) * sizeof(uint));
-            memset(fkPart + (probe - 1) * sizeof(uint), 0, sizeof(uint));
+            // update fk masters: type uchar[]
+            memcpy(header->constraintName[pos], header->constraintName[pos + 1], (fkMasterCount - pos - 1) * MAX_CONSTRAINT_NAME_LEN);
+            memset(header->constraintName[fkMasterCount - 1], 0, MAX_CONSTRAINT_NAME_LEN);
+            // update master ID, type: uchar
+            memcpy(&header->fkMaster[pos], &header->fkMaster[pos + 1], fkMasterCount - pos - 1);
+            header->fkMaster[fkMasterCount - 1] = TB_ID_NONE;
+            // update master key ID, type: uint
+            memcpy(&header->masterKeyID[pos], &header->masterKeyID[pos + 1], (fkMasterCount - pos - 1) * sizeof(uint));
+            header->masterKeyID[fkMasterCount - 1] = 0;
+            // update slave key ID, type: uint
+            memcpy(&header->slaveKeyID[pos], &header->slaveKeyID[pos + 1], (fkMasterCount - pos - 1) * sizeof(uint));
+            header->slaveKeyID[fkMasterCount - 1] = 0;
             // sync
-            bpm->markDirty(headerIdx);
+            headerDirty = true;
+            fkMasterCount--;
             return true;
         }
 
         /**
-         * Remove foreign constraint slave
+         * Add foreign constraint slave
+         * NOTE: duplicate slave is permitted, since a table can have multiple constraints
         */
         bool AddFKSlave(uchar slaveID){
-            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-            uchar* slaves = headerBuf + Header::idxOffset - MAX_FK_MASTER_TIME;
-            int pos = 0;
-            while(pos < MAX_FK_MASTER_TIME){
-                if(slaves[pos] == TB_ID_NONE)
-                    return false;
-                if(slaves[pos] == slaveID)
-                    break;
-                pos++;
-            }
-            if(pos == MAX_FK_MASTER_TIME)
+            if(fkSlaveCount == MAX_FK_MASTER_TIME) // full
                 return false;
-            // get the total num of slaves
-            int probe = pos + 1;
-            while(probe < MAX_FK_MASTER_TIME)
-                if(slaves[pos] == TB_ID_NONE)
-                    break;
-                else
-                    probe++;
+            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            uchar* slaves = header->fkSlave;
             // update slaves
-            memcpy(slaves + pos, slaves + pos + 1, probe - pos - 1);
-            memset(slaves + probe - 1, TB_ID_NONE, 1);
+            slaves[fkSlaveCount++] = slaveID;
             // sync
-            bpm->markDirty(headerIdx);
+            headerDirty = true;
+            fkSlaveCount++;
             return true;
         }
 
@@ -348,13 +363,34 @@ class Table{
          * Remove foreign constraint slave
         */
         bool RemoveFKSlave(uchar slaveID){
-            // TODO
+            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            uchar* slaves = header->fkSlave;
+            int pos = 0;
+            while(pos < fkSlaveCount){
+                if(slaves[pos] == slaveID) // found
+                    break;
+                pos++;
+            }
+            if(pos == fkSlaveCount) // not found
+                return false;
+            // update slaves
+            memcpy(slaves + pos, slaves + pos + 1, fkSlaveCount - pos - 1);
+            slaves[fkSlaveCount - 1] = TB_ID_NONE;
+            // sync
+            headerDirty = true;
+            fkSlaveCount--;
+            return true;
         }
 
         /**
          * Caution, this action writes back data not only in this table, but all the tables
         */
-        static void WriteBack(){ // TODO write back only pages related to this table
+        void WriteBack(){ // TODO write back only pages related to this table
+            if(headerDirty){
+                headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+                header->ToString(headerBuf);
+                bpm->markDirty(headerIdx);
+            }
             bpm->close();
         }
 
@@ -374,6 +410,28 @@ class Table{
             }
             else
                 return false;
+        }
+
+        /**
+         * Create index on cols
+         * Checked: name conflict, not more room, cols illegal
+         * ! Unchecked: if cols == 0, name length illegal
+        */
+        int CreateIndexOn(uint cols, const char* idxName);
+
+        /**
+         * Remove index by name
+         * Checked: idx not found
+         * ! Unchecked: name length illegal
+        */
+        bool RemoveIndex(const char* idxName);
+
+        void InsertLongVarchar(const char* str, int length){
+            // TODO
+        }
+
+        void RemoveLongVarchar(const RID& rid){
+            // TODO
         }
 
         int FileID(){

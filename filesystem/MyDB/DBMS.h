@@ -95,15 +95,7 @@ class DBMS{
                 }
                 printf("DBMS init success\n");
             }
-            Table* ans = new Table();
-            int index;
-            BufType headerBuf = bpm->getPage(fid, 0, index);
-            bpm->access(index);
-            ans->header->FromString(headerBuf);
-            ans->fid = fid;
-            ans->headerIdx = index;
-            ans->headerBuf = (uchar*)headerBuf;
-            memcpy(ans->tablename, DBMS_RESERVED_TABLE_NAME, strlen(DBMS_RESERVED_TABLE_NAME));
+            Table* ans = new Table(fid, DBMS_RESERVED_TABLE_NAME, nullptr);
             tb = ans;
             scanner = tb->GetScanner(nullptr);
             rec = new Record();

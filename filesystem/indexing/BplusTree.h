@@ -5,6 +5,7 @@
 #include "../RM/RID.h"
 #include "../MyDB/Table.h"
 #include <vector>
+#include <queue>
 #include <stdlib.h>
 /**
  * In a B+ tree of internal order a and leaf order b
@@ -113,6 +114,7 @@ class BplusTree{
 
     public:
         // create a B+ tree from a header
+        // memory of header will be freed by B+ tree at its destruction
         // you need to specify: attrType, attrLenth, nullMask, tableName, indexColID
         // those assigned in constructor: recordLenth, internalCap, leafCap, rootPage, recordNum, 
         BplusTree(Table* table, IndexHeader* header){
@@ -159,6 +161,7 @@ class BplusTree{
             internalMinKey = (header->internalCap - 1) >> 1;
             leafMinKey = (header->leafCap + 1) >> 1;
             root = GetTreeNode(nullptr, header->rootPage);
+            nodes.pop_back();
         }
 
         void UpdateRecordNum(){
@@ -254,6 +257,45 @@ class BplusTree{
             bool ret = Search(data, rid);
             ClearAndWriteBackOpenedNodes();
         }
+
+        uint TreeHeaderPage(){
+            return page;
+        }
+
+        void DeleteTreeFromDisk(){
+            root->checkBuffer();
+            RID rid = RID();
+            rid.SlotNum = 0;
+            std::queue<uint> Q = std::queue<uint>();
+            Q.push(header->rootPage);
+            while(!Q.empty()){
+                BplusTreeNode* node = GetTreeNode(nullptr, Q.front());
+                if(node->type == BplusTreeNode::Internal){
+                    for(int i = 0; i < node->size; i++)
+                        Q.push(*node->NodePtrAt(i));
+                }
+                rid.PageNum = Q.front();
+                table->DeleteRecord(rid);
+                Q.pop();
+            }
+            for(BplusTreeNode* node : nodes)
+                delete node;
+            nodes.clear();
+            delete root;
+            root = nullptr;
+            rid.PageNum = page;
+            table->DeleteRecord(rid);
+            delete header;
+            header = nullptr;
+        }
+
+        ~BplusTree(){
+            if(header)
+                delete header;
+            if(root)
+                delete root;
+        }
+
         struct Checker{
             uint page;
             uint parentPage;
@@ -990,4 +1032,57 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
 }
 
 // TODO: bulk-loading of b+ tree to realized fast construction
+// table ops
+int Table::CreateIndexOn(uint cols, const char* idxName){
+    if(idxCount == MAX_INDEX_NUM) // full
+        return 2;
+    headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+    for(int i = 0; i < MAX_INDEX_NUM; i++)
+        if(identical(idxName, (char*)header->indexName[i], MAX_INDEX_NAME_LEN)) // conflict
+            return 1;
+    // check if cols is illegal
+    if(cols & (((uint)-1) >> colCount))
+        return 3;
+    // update idx name
+    memcpy(header->indexName[idxCount], idxName, strnlen(idxName, MAX_INDEX_NAME_LEN));
+    header->indexID[idxCount] = cols;
+    // operation on idx table
+    IndexHeader* idxHeader = new IndexHeader();
+    idxHeader->nullMask = -1;
+    int iter = 0;
+    for(int i = 0; i < colCount; i++){
+        if(getBitFromLeft(cols, i)){
+            idxHeader->attrType[iter] = header->attrType[i];
+            idxHeader->attrLenth[iter] = header->attrLenth[i];
+            if(!getBitFromLeft(header->nullMask, i))
+                clearBitFromLeft(idxHeader->nullMask, iter);
+            idxHeader->indexColID[iter] = i;
+            iter++;
+        }
+    }
+    memcpy(idxHeader->tableName, tablename, MAX_TABLE_NAME_LEN);
+    BplusTree* tree = new BplusTree(db->idx, idxHeader);
+    header->bpTreePage[idxCount] = tree->TreeHeaderPage();
+    // TODO add existing record into index
+    delete tree;
+    idxCount++;
+    headerDirty = true;
+}
+
+bool Table::RemoveIndex(const char* idxName){
+    int pos = 0;
+    while(pos < idxCount){
+        if(identical((char*)header->indexName[pos], idxName, MAX_INDEX_NAME_LEN))
+            break;
+        pos++;
+    }
+    if(pos == idxCount) // not found
+        return false;
+    memcpy(header->indexName[pos], header->indexName[pos + 1], (idxCount - pos - 1) * MAX_INDEX_NAME_LEN);
+    memset(header->indexName[idxCount - 1], 0, MAX_INDEX_NAME_LEN);
+    // sync
+    idxCount--;
+    headerDirty = true;
+}
+
 #endif // BPLUSTREE_H
