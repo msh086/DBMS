@@ -4,7 +4,7 @@
 
 class Comparator{
     public:
-        const static uchar Any = 0, Eq = 1, Gt = 2, GtEq = 3, Lt = 4, LtEq = 5;
+        const static uchar Any = 0, Eq = 1, NE = 2, Gt = 3, GtEq = 4, Lt = 5, LtEq = 6;
 };
 
 #endif

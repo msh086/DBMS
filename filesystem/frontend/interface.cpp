@@ -1,12 +1,17 @@
 
 #include <cstdio>
 #include "../MyDB/DBMS.h"
+#include "../frontend/Global.h"
 // #include "yacc.tab.h" // yacc生成的头文件
 using namespace std;
 
 extern int yyparse();
 
 int main(){
+    DBMS* dbms = DBMS::Instance();
+    dbms->Init();
+    Global::dbms = dbms;
+
     FILE* tmp = tmpfile();
 
 	extern FILE* yyin;				//yyin和yyout都是FILE*类型

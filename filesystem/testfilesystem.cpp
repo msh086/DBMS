@@ -26,6 +26,7 @@
 #include "RM/DataType.h"
 #include "indexing/IndexHeader.h"
 #include "indexing/BplusTree.h"
+#include "MyDB/DBMS.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -33,7 +34,9 @@
 
 using namespace std;
 int main() {
-	printf("%d\n", (uint(-1)) >> 31);
+	DBMS* dbms = DBMS::Instance();
+	dbms->Init();
+	// printf("%d\n", (uint(-1)) >> 31);
 	// int mkdirRet = mkdir("folder", S_IRWXU | S_IRWXG | S_IRWXO);
 	// int rmdirRet = rmdir("folder");
 	// printf("mkDir ret: %d, rmDir ret: %d\n", mkdirRet, rmdirRet);

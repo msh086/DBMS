@@ -5,17 +5,20 @@
 #include <string>
 #include <stdexcept>
 
+/**
+ * create table {tablename}({field}, ...)
+ * alter table {tablename} add {field}
+ * alter table {tablename} change {columnname} {field}
+*/
 struct Field{
+    // NULL由type == DataType::NONE决定
+    // VARCHAR和CHAR存在
 	char name[MAX_ATTRI_NAME_LEN] = "";
     uchar type = DataType::NONE;
 	ushort length = 0;
 	bool nullable = true;
 	bool hasDefault = false;
 	uchar* defaultValue = nullptr;
-	~Field(){
-		if(defaultValue)
-			delete[] defaultValue;
-	}
     const static int INVALID_ARG = 1, OUT_OF_RANGE = 2, OTHER = 3;
     static uchar strToInt(const std::string& str, int& dst){
         

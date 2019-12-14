@@ -121,21 +121,21 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 				}
 
 {date}			{
-					yylval.str.assign(yytext, yyleng);
+					yylval.val.str.assign(yytext, yyleng);
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
 					return DATE_LIT;
 				}
 
 {integer}		{							//匹配整数串
-					yylval.str.assign(yytext, yyleng);
+					yylval.val.str.assign(yytext, yyleng);
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
 					return INT_LIT;			//向yacc返回: 识别出的记号类型是INTEGER
 				}
 
 {float}			{
-					yylval.str.assign(yytext, yyleng);
+					yylval.val.str.assign(yytext, yyleng);
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
 					return FLOAT_LIT;
@@ -153,7 +153,7 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 
 
 {identifier}	{							//匹配标识符串，此时串值由yytext保存
-					yylval.str.assign(yytext, yyleng);	//通过yylval向yacc传递识别出的记号的值，由于yylval已定义为struct Type，这里就可以把yytext赋给其m_sId成员，到了yacc里就可以用$n的方式来引用了
+					yylval.val.str.assign(yytext, yyleng);	//通过yylval向yacc传递识别出的记号的值，由于yylval已定义为struct Type，这里就可以把yytext赋给其m_sId成员，到了yacc里就可以用$n的方式来引用了
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
 					return IDENTIFIER;		//向yacc返回: 识别出的记号类型是IDENTIFIER
@@ -162,7 +162,7 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 <STRING>\"		{							//注释状态下的规则，只有当前切换到COMMENT状态才会去匹配
 					Global::buffer.push_back(yytext[0]);
 					Global::pos++;
-					yylval.str = Global::buffer;
+					yylval.val.str = Global::buffer;
 					Global::buffer.clear();
 					BEGIN INITIAL;			//在注释状态下，当遇到换行符时，表明注释结束了，返回初始态
 					return STRING_LIT;

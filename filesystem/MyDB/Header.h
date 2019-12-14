@@ -101,7 +101,7 @@ class Header : public BaseHeader{
             printf("\n");
             printf("***fkMaster:\n    ");
             for(int i = 0; i < MAX_COL_NUM; i++)
-                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, fkMaster[i]);
+                printf("(%d, %c) ", i, fkMaster[i]);
             printf("\n");
             printf("***masterKeyID:\n    ");
             for(int i = 0; i < MAX_COL_NUM; i++)
@@ -109,7 +109,7 @@ class Header : public BaseHeader{
             printf("\n");
             printf("***fkSlave:\n    ");
             for(int i = 0; i < MAX_FK_MASTER_TIME; i++)
-                printf("(%d, %.*s) ", i, MAX_TABLE_NAME_LEN, fkSlave[i]);
+                printf("(%d, %c) ", i, fkSlave[i]);
             printf("\n");
             printf("<<<End of table\n");
             // TODO: more information?

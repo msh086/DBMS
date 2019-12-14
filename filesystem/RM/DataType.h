@@ -504,6 +504,8 @@ class DataType{
                 return lessThan(left, right, type, length, nullable);
             case Comparator::LtEq:
                 return noGreaterThan(left, right, type, length, nullable);
+            case Comparator::NE:
+                return !eq(left, right, type, length, nullable);
             default:
                 std::printf("cmp doesn't match any strategy defined in Comparator.h\n");
                 return false;

@@ -76,6 +76,7 @@ Stmt		:	SysStmt ';'
 SysStmt		:	SHOW DATABASES
 				{
 					printf("show db\n");
+
 				}
 			;
 
@@ -170,112 +171,112 @@ fieldList	:	fieldList ',' field
 field		:	IDENTIFIER type
 				{
 					printf("id type\n");
-					if($1.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::errors.push_back($1.pos);
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.str.data(), $1.str.length());
-					$$.field.type = $2.type;
-					$$.field.length = DataType::lengthOf($2.type, *(uint*)$2.val);
+						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+					$$.field.type = $2.val.type;
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 				}
 			|	IDENTIFIER type NOT KW_NULL
 				{
 					printf("not null\n");
-					if($1.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::errors.push_back($1.pos);
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.str.data(), $1.str.length());
-					$$.field.type = $2.type;
-					$$.field.length = DataType::lengthOf($2.type, *(uint*)$2.val);
+						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+					$$.field.type = $2.val.type;
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 					$$.field.nullable = false;
 				}
 			|	IDENTIFIER type DEFAULT value
 				{
 					printf("default\n");
-					if($1.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::errors.push_back($1.pos);
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.str.data(), $1.str.length());
-					$$.field.type = $2.type;
-					$$.field.length = DataType::lengthOf($2.type, *(uint*)$2.val);
+						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+					$$.field.type = $2.val.type;
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 					// decide subtype
-					if($4.type == DataType::NONE){ // value is null
+					if($4.val.type == DataType::NONE){ // value is null
 						// do nothing, $$.field.defaultValue will be nullptr
 					}
-					if($4.type == DataType::INT && $2.type == DataType::BIGINT){
-						*(ll*)$$.val = *(int*)$4.val;
+					if($4.val.type == DataType::INT && $2.val.type == DataType::BIGINT){
+						*(ll*)$$.val.bytes = *(int*)$4.val.bytes;
 						$$.field.defaultValue = new uchar[8];
-						memcpy($$.field.defaultValue, $$.val, 8);
+						memcpy($$.field.defaultValue, $$.val.bytes, 8);
 					}
-					else if($4.type == DataType::INT && $2.type == DataType::FLOAT){
-						*(float*)$$.val = *(int*)$4.val;
+					else if($4.val.type == DataType::INT && $2.val.type == DataType::FLOAT){
+						*(float*)$$.val.bytes = *(int*)$4.val.bytes;
 						$$.field.defaultValue = new uchar[4];
-						memcpy($$.field.defaultValue, $$.val, 4);
+						memcpy($$.field.defaultValue, $$.val.bytes, 4);
 					}
-					else if($4.type == DataType::FLOAT && $2.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val;
-						int bytes = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(float*)$2.val < 0, $2.str.data(), $2.str.find('.'), $$.val, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = new uchar[bytes];
-						memcpy($$.val, $4.val, bytes);
-						memcpy($$.field.defaultValue, $$.val, bytes);
+					else if($4.val.type == DataType::FLOAT && $2.val.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val.bytes;
+						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
+						DataType::floatToBin(*(float*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.find('.'), $$.val.bytes, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = new uchar[byteNum];
+						memcpy($$.val.bytes, $4.val.bytes, byteNum);
+						memcpy($$.field.defaultValue, $$.val.bytes, byteNum);
 					}
-					else if($4.type == DataType::INT && $2.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val;
-						int bytes = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(int*)$2.val < 0, $2.str.data(), $2.str.length(), $$.val, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = new uchar[bytes];
-						memcpy($$.val, $4.val, bytes);
-						memcpy($$.field.defaultValue, $$.val, bytes);
+					else if($4.val.type == DataType::INT && $2.val.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val.bytes;
+						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
+						DataType::floatToBin(*(int*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = new uchar[byteNum];
+						memcpy($$.val.bytes, $4.val.bytes, byteNum);
+						memcpy($$.field.defaultValue, $$.val.bytes, byteNum);
 					}
-					else if($4.type == DataType::BIGINT && $2.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val;
-						int bytes = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(ll*)$2.val < 0, $2.str.data(), $2.str.length(), $$.val, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = new uchar[bytes];
-						memcpy($$.val, $4.val, bytes);
-						memcpy($$.field.defaultValue, $$.val, bytes);
+					else if($4.val.type == DataType::BIGINT && $2.val.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val.bytes;
+						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
+						DataType::floatToBin(*(ll*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = new uchar[byteNum];
+						memcpy($$.val.bytes, $4.val.bytes, byteNum);
+						memcpy($$.field.defaultValue, $$.val.bytes, byteNum);
 					}
-					else if($4.type == DataType::CHAR && $2.type == DataType::VARCHAR){
-						$$.str = $4.str;
-						$$.field.defaultValue = new uchar[$$.str.length()];
-						memcpy($$.field.defaultValue, $$.str.data(), $$.str.length());
+					else if($4.val.type == DataType::CHAR && $2.val.type == DataType::VARCHAR){
+						$$.val.str = $4.val.str;
+						$$.field.defaultValue = new uchar[$$.val.str.length()];
+						memcpy($$.field.defaultValue, $$.val.str.data(), $$.val.str.length());
 					}
-					else if($4.type == DataType::CHAR && $2.type == DataType::CHAR && $4.str.length() <= *(int*)$2.val){
-						$$.str = $4.str;
-						$$.field.defaultValue = new uchar[$$.str.length()];
-						memcpy($$.field.defaultValue, $$.str.data(), $$.str.length());
+					else if($4.val.type == DataType::CHAR && $2.val.type == DataType::CHAR && $4.val.str.length() <= *(int*)$2.val.bytes){
+						$$.val.str = $4.val.str;
+						$$.field.defaultValue = new uchar[$$.val.str.length()];
+						memcpy($$.field.defaultValue, $$.val.str.data(), $$.val.str.length());
 					}
-					else if($4.type == DataType::VARCHAR && $2.type == DataType::VARCHAR && $4.str.length() <= *(int*)$2.val){
-						$$.str = $4.str;
-						$$.field.defaultValue = new uchar[$$.str.length()];
-						memcpy($$.field.defaultValue, $$.str.data(), $$.str.length());
+					else if($4.val.type == DataType::VARCHAR && $2.val.type == DataType::VARCHAR && $4.val.str.length() <= *(int*)$2.val.bytes){
+						$$.val.str = $4.val.str;
+						$$.field.defaultValue = new uchar[$$.val.str.length()];
+						memcpy($$.field.defaultValue, $$.val.str.data(), $$.val.str.length());
 					}
-					else if($4.type == $2.type){
-						if($2.type == DataType::INT){
-							*(int*)$$.val = *(int*)$4.val;
+					else if($4.val.type == $2.val.type){
+						if($2.val.type == DataType::INT){
+							*(int*)$$.val.bytes = *(int*)$4.val.bytes;
 							$$.field.defaultValue = new uchar[4];
-							memcpy($$.field.defaultValue, $$.val, 4);
+							memcpy($$.field.defaultValue, $$.val.bytes, 4);
 						}
-						else if($2.type == DataType::BIGINT){
-							*(ll*)$$.val = *(ll*)$4.val;
+						else if($2.val.type == DataType::BIGINT){
+							*(ll*)$$.val.bytes = *(ll*)$4.val.bytes;
 							$$.field.defaultValue = new uchar[8];
-							memcpy($$.field.defaultValue, $$.val, 8);
+							memcpy($$.field.defaultValue, $$.val.bytes, 8);
 						}
-						else if($2.type == DataType::FLOAT){
-							*(float*)$$.val = *(float*)$4.val;
+						else if($2.val.type == DataType::FLOAT){
+							*(float*)$$.val.bytes = *(float*)$4.val.bytes;
 							$$.field.defaultValue = new uchar[8];
-							memcpy($$.field.defaultValue, $$.val, 8);
+							memcpy($$.field.defaultValue, $$.val.bytes, 8);
 						}
-						else if($2.type == DataType::DATE){
-							memcpy($$.val, $4.val, 3);
+						else if($2.val.type == DataType::DATE){
+							memcpy($$.val.bytes, $4.val.bytes, 3);
 							$$.field.defaultValue = new uchar[8];
-							memcpy($$.field.defaultValue, $$.val, 8);
+							memcpy($$.field.defaultValue, $$.val.bytes, 8);
 						}
 						// a value will only be parsed as float, not numeric
 						// varchar and char are solved previously
@@ -301,55 +302,55 @@ field		:	IDENTIFIER type
 			;
 
 // Type.type : 类型
-// Type.val : 对于INT, DATE, FLOAT来说此字段无用; 对于VARCHAR, CHAR来说表示长度, 对于NUMERIC来说表示两个长度参数, 都将结果以int类型存到val处
+// Type.val.bytes : 对于INT, DATE, FLOAT来说此字段无用; 对于VARCHAR, CHAR来说表示长度, 对于NUMERIC来说表示两个长度参数, 都将结果以int类型存到val处
 // 长度都已经经过检查
 type		:	KW_INT
 				{
 					printf("type int\n");
-					$$.type = DataType::INT;
+					$$.val.type = DataType::INT;
 				}
 			|	DATE
 				{
 					printf("type data\n");
-					$$.type = DataType::DATE;
+					$$.val.type = DataType::DATE;
 				}
 			|	FLOAT
 				{
 					printf("type float\n");
-					$$.type = DataType::FLOAT;
+					$$.val.type = DataType::FLOAT;
 				}
 			|	CHAR '(' INT_LIT ')'
 				{
 					printf("char\n");
-					$$.type = DataType::CHAR;
+					$$.val.type = DataType::CHAR;
 					int intVal = 0;
-					uchar code = Field::strToInt($3.str, intVal);
+					uchar code = Field::strToInt($3.val.str, intVal);
 					if(code != 0 || intVal < 0 || intVal > 255){
 						Global::errors.push_back($3.pos);
 						YYABORT;
 					}
 					else
-						*(int*)$$.val = intVal;
+						*(int*)$$.val.bytes = intVal;
 				}
 			|	VARCHAR	'(' INT_LIT ')'
 				{
 					printf("varchar\n");
-					$$.type = DataType::VARCHAR;
+					$$.val.type = DataType::VARCHAR;
 					int intVal = 0;
-					uchar code = Field::strToInt($3.str, intVal);
+					uchar code = Field::strToInt($3.val.str, intVal);
 					if(code != 0 || intVal < 0 || intVal > 65535){
 						Global::errors.push_back($3.pos);
 						YYABORT;
 					}
 					else
-						*(int*)$$.val = intVal;
+						*(int*)$$.val.bytes = intVal;
 				}
 			|	NUMERIC '(' INT_LIT ',' INT_LIT ')'
 				{
 					printf("numeric\n");
-					$$.type = DataType::NUMERIC;
+					$$.val.type = DataType::NUMERIC;
 					int intVal = 0, intVal0 = 0;
-					uchar code = Field::strToInt($3.str, intVal), code0 = Field::strToInt($5.str, intVal0);
+					uchar code = Field::strToInt($3.val.str, intVal), code0 = Field::strToInt($5.val.str, intVal0);
 					if(code != 0 || intVal < 1 || intVal > 38){
 						Global::errors.push_back($3.pos);
 						YYABORT;
@@ -358,7 +359,7 @@ type		:	KW_INT
 						Global::errors.push_back($5.pos);
 						YYABORT;
 					}
-					*(uint*)$$.val = (intVal << 8) + intVal0; // p, s are stored in val
+					*(uint*)$$.val.bytes = (intVal << 8) + intVal0; // p, s are stored in val
 				}
 			;
 
@@ -366,20 +367,26 @@ type		:	KW_INT
 valueLists	:	'(' valueList ')'
 				{
 					printf("valueLists base\n");
+					$$.valLists.push_back($2.valList);
 				}
 			|	valueLists ',' '(' valueList ')'
 				{
 					printf("valueLists recur\n");
+					$$.valLists = $$.valLists;
+					$$.valLists.push_back($4.valList);
 				}
 			;
 
 valueList	:	value
 				{
 					printf("valueList base\n");
+					$$.valList.push_back($1.val);
 				}
 			|	valueList ',' value
 				{
 					printf("valueList recur\n");
+					$$.valList = $1.valList;
+					$$.valList.push_back($1.val);
 				}
 			;
 
@@ -388,48 +395,48 @@ value		:	INT_LIT
 					printf("int lit\n");
 					int intVal = 0;
 					ll llVal = 0;
-					uchar code = Field::strToInt($1.str, intVal);
+					uchar code = Field::strToInt($1.val.str, intVal);
 					if(code == 0){
-						*(int*)$$.val = intVal;
-						$$.type = DataType::INT;
+						*(int*)$$.val.bytes = intVal;
+						$$.val.type = DataType::INT;
 					}
 					else{
-						code = Field::strToLL($1.str, llVal);
+						code = Field::strToLL($1.val.str, llVal);
 						if(code != 0){
 							Global::errors.push_back($1.pos);
 							YYABORT;
 						}
 						else{
-							*(ll*)$$.val = llVal;
-							$$.type = DataType::BIGINT;
+							*(ll*)$$.val.bytes = llVal;
+							$$.val.type = DataType::BIGINT;
 						}
 					}
 				}
 			|	FLOAT_LIT
 				{
 					printf("float lit\n");
-					$$.type = DataType::FLOAT;
+					$$.val.type = DataType::FLOAT;
 					float floatVal = 0;
-					uchar code = Field::strToFloat($1.str, floatVal);
+					uchar code = Field::strToFloat($1.val.str, floatVal);
 					if(code != 0){
 						Global::errors.push_back($1.pos);
 						YYABORT;
 					}
 					else
-						*(float*)$$.val = floatVal;
+						*(float*)$$.val.bytes = floatVal;
 				}
 			|	DATE_LIT
 				{
 					printf("date lit\n");
-					$$.type = DataType::DATE;
-					int ym_sep = $1.str.find('-'), md_sep = $1.str.rfind('-');
+					$$.val.type = DataType::DATE;
+					int ym_sep = $1.val.str.find('-'), md_sep = $1.val.str.rfind('-');
 					int year = 0, month = 0, day = 0;
 					for(int i = 0; i < ym_sep; i++)
-						year = year * 10 + $1.str[i] - '0';
+						year = year * 10 + $1.val.str[i] - '0';
 					for(int i = ym_sep + 1; i < md_sep; i++)
-						month = month * 10 + $1.str[i] - '0';
-					for(int i = md_sep + 1; i < $1.str.length(); i++)
-						day = day * 10 + $1.str[i] - '0';
+						month = month * 10 + $1.val.str[i] - '0';
+					for(int i = md_sep + 1; i < $1.val.str.length(); i++)
+						day = day * 10 + $1.val.str[i] - '0';
 					bool ok = true;
 					if(year == 0 || month == 0 || month > 12 || day == 0 || day > 31)
 						ok = false;
@@ -442,7 +449,7 @@ value		:	INT_LIT
 							ok = false;
 					}
 					if(ok)
-						DataType::dateToBin(year, month, day, $$.val);
+						DataType::dateToBin(year, month, day, $$.val.bytes);
 					else{
 						Global::errors.push_back($1.pos);
 						YYABORT;
@@ -451,10 +458,10 @@ value		:	INT_LIT
 			| 	STRING_LIT
 				{
 					printf("string lit\n");
-					if($1.str.length() <= 255)
-						$$.type = DataType::CHAR;
-					else if($1.str.length() <= 65535)
-						$$.type = DataType::VARCHAR;
+					if($1.val.str.length() <= 255)
+						$$.val.type = DataType::CHAR;
+					else if($1.val.str.length() <= 65535)
+						$$.val.type = DataType::VARCHAR;
 					else{
 						Global::errors.push_back($1.pos);
 						YYABORT;
@@ -463,18 +470,18 @@ value		:	INT_LIT
 			|	KW_NULL
 				{
 					printf("null lit\n");
-					$$.type = DataType::NONE; // use NONE to record null lit
+					$$.val.type = DataType::NONE; // use NONE to record null lit
 				}
 			| 	'-' value // minus: for float, int and bigint
 				{
-					if($2.type == DataType::FLOAT){
-						*(float*)$2.val = -*(float*)$2.val;
+					if($2.val.type == DataType::FLOAT){
+						*(float*)$2.val.bytes = -*(float*)$2.val.bytes;
 					}
-					else if($2.type == DataType::INT){
-						*(int*)$2.val = -*(int*)$2.val;
+					else if($2.val.type == DataType::INT){
+						*(int*)$2.val.bytes = -*(int*)$2.val.bytes;
 					}
-					else if($2.type == DataType::BIGINT){
-						*(ll*)$2.val = -*(ll*)$2.val;
+					else if($2.val.type == DataType::BIGINT){
+						*(ll*)$2.val.bytes = -*(ll*)$2.val.bytes;
 					}
 					else{
 						Global::errors.push_back($1.pos);
@@ -514,26 +521,32 @@ col			:	IDENTIFIER
 op			:	GE
 				{
 					printf("GE\n");
+					$$.cmp = Comparator::GtEq;
 				}
 			|	LE
 				{
 					printf("LE\n");
+					$$.cmp = Comparator::LtEq;
 				}
 			|	NE
 				{
 					printf("NE\n");
+					$$.cmp = Comparator::NE;
 				}
 			|	'>'
 				{
 					printf("Gt\n");
+					$$.cmp = Comparator::Gt;
 				}
 			|	'<'
 				{
 					printf("Lt\n");
+					$$.cmp = Comparator::Lt;
 				}
 			|	'='
 				{
 					printf("eq\n");
+					$$.cmp = Comparator::Eq;
 				}
 			;
 
@@ -587,55 +600,8 @@ IdList		:	IDENTIFIER
 				}
 			;
 
-/*
-file:								//文件，由记号流组成
-	tokenlist						//这里仅显示记号流中的ID
-	{
-		cout<<"all id:"<<$1<<endl;	//$1是非终结符tokenlist的属性，由于该终结符是用%type<m_sId>定义的，即约定对其用YYSTYPE的m_sId属性，$1相当于$1.m_sId，其值已经在下层产生式中赋值(tokenlist IDENTIFIER)
-	};
-tokenlist:							//记号流，或者为空，或者由若干数字、标识符、及其它符号组成
-	{
-	}
-	| tokenlist INTEGER
-	{
-		cout<<"int: "<<$2<<endl;	//$2是记号INTEGER的属性，由于该记号是用%token<m_nInt>定义的，即约定对其用YYSTYPE的m_nInt属性，$2会被替换为yylval.m_nInt，已在lex里赋值
-	}
-	| tokenlist IDENTIFIER
-	{
-		$$+=" " + $2;				//$$是非终结符tokenlist的属性，由于该终结符是用%type<m_sId>定义的，即约定对其用YYSTYPE的m_sId属性，$$相当于$$.m_sId，这里把识别到的标识符串保存在tokenlist属性中，到上层产生式里可以拿出为用
-		cout<<"id: "<<$2<<endl;		//$2是记号IDENTIFIER的属性，由于该记号是用%token<m_sId>定义的，即约定对其用YYSTYPE的m_sId属性，$2会被替换为yylval.m_sId，已在lex里赋值
-	}
-	| tokenlist OPERATOR
-	{
-		cout<<"op: "<<$2<<endl;		//$2是记号OPERATOR的属性，由于该记号是用%token<m_cOp>定义的，即约定对其用YYSTYPE的m_cOp属性，$2会被替换为yylval.m_cOp，已在lex里赋值
-	};
-*/
-
 %%
 void yyerror(const char *s)			//当yacc遇到语法错误时，会回调yyerror函数，并且把错误信息放在参数s中
 {
 	printf("Error: %s\n", s);					//直接输出错误信息
 }
-
-/*
-int main()							//程序主函数，这个函数也可以放到其它.c, .cpp文件里
-{
-	const char* sFile="file.txt";	//打开要读取的文本文件
-	FILE* fp=fopen(sFile, "r");
-	if(fp==nullptr)
-	{
-		printf("cannot open %s\n", sFile);
-		return -1;
-	}
-	extern FILE* yyin;				//yyin和yyout都是FILE*类型
-	yyin=fp;						//yacc会从yyin读取输入，yyin默认是标准输入，这里改为磁盘文件。yacc默认向yyout输出，可修改yyout改变输出目的
-
-	printf("-----begin parsing %s\n", sFile);
-	yyparse();						//使yacc开始读取输入和解析，它会调用lex的yylex()读取记号
-	puts("-----end parsing");
-
-	fclose(fp);
-
-	return 0;
-}
-*/
