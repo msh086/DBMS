@@ -155,10 +155,13 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 fieldList	:	fieldList ',' field
 				{
 					printf("fieldList recur\n");
+					$$.fieldList = $1.fieldList;
+					$$.fieldList.push_back($3.field);
 				}
 			|	field
 				{
 					printf("fieldList base\n");
+					$$.fieldList.push_back($1.field);
 				}
 			;
 
@@ -206,31 +209,81 @@ field		:	IDENTIFIER type
 					}
 					if($4.type == DataType::INT && $2.type == DataType::BIGINT){
 						*(ll*)$$.val = *(int*)$4.val;
-						$$.field.defaultValue = $$.val;
+						$$.field.defaultValue = new uchar[8];
+						memcpy($$.field.defaultValue, $$.val, 8);
 					}
-					else if($4.type == DataType::INT && $2.type = DataType::FLOAT){
+					else if($4.type == DataType::INT && $2.type == DataType::FLOAT){
 						*(float*)$$.val = *(int*)$4.val;
-						$$.field.defaultValue = $$.val;
+						$$.field.defaultValue = new uchar[4];
+						memcpy($$.field.defaultValue, $$.val, 4);
 					}
 					else if($4.type == DataType::FLOAT && $2.type == DataType::NUMERIC){
 						uint pns = *(uint*)$2.val;
+						int bytes = DataType::lengthOf(DataType::NUMERIC, pns);
 						DataType::floatToBin(*(float*)$2.val < 0, $2.str.data(), $2.str.find('.'), $$.val, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = $$.val;
+						$$.field.defaultValue = new uchar[bytes];
+						memcpy($$.val, $4.val, bytes);
+						memcpy($$.field.defaultValue, $$.val, bytes);
 					}
 					else if($4.type == DataType::INT && $2.type == DataType::NUMERIC){
 						uint pns = *(uint*)$2.val;
+						int bytes = DataType::lengthOf(DataType::NUMERIC, pns);
 						DataType::floatToBin(*(int*)$2.val < 0, $2.str.data(), $2.str.length(), $$.val, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = $$.val;
+						$$.field.defaultValue = new uchar[bytes];
+						memcpy($$.val, $4.val, bytes);
+						memcpy($$.field.defaultValue, $$.val, bytes);
 					}
 					else if($4.type == DataType::BIGINT && $2.type == DataType::NUMERIC){
 						uint pns = *(uint*)$2.val;
+						int bytes = DataType::lengthOf(DataType::NUMERIC, pns);
 						DataType::floatToBin(*(ll*)$2.val < 0, $2.str.data(), $2.str.length(), $$.val, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = $$.val;
+						$$.field.defaultValue = new uchar[bytes];
+						memcpy($$.val, $4.val, bytes);
+						memcpy($$.field.defaultValue, $$.val, bytes);
 					}
 					else if($4.type == DataType::CHAR && $2.type == DataType::VARCHAR){
-						// TODO
+						$$.str = $4.str;
+						$$.field.defaultValue = new uchar[$$.str.length()];
+						memcpy($$.field.defaultValue, $$.str.data(), $$.str.length());
 					}
-					// TODO
+					else if($4.type == DataType::CHAR && $2.type == DataType::CHAR && $4.str.length() <= *(int*)$2.val){
+						$$.str = $4.str;
+						$$.field.defaultValue = new uchar[$$.str.length()];
+						memcpy($$.field.defaultValue, $$.str.data(), $$.str.length());
+					}
+					else if($4.type == DataType::VARCHAR && $2.type == DataType::VARCHAR && $4.str.length() <= *(int*)$2.val){
+						$$.str = $4.str;
+						$$.field.defaultValue = new uchar[$$.str.length()];
+						memcpy($$.field.defaultValue, $$.str.data(), $$.str.length());
+					}
+					else if($4.type == $2.type){
+						if($2.type == DataType::INT){
+							*(int*)$$.val = *(int*)$4.val;
+							$$.field.defaultValue = new uchar[4];
+							memcpy($$.field.defaultValue, $$.val, 4);
+						}
+						else if($2.type == DataType::BIGINT){
+							*(ll*)$$.val = *(ll*)$4.val;
+							$$.field.defaultValue = new uchar[8];
+							memcpy($$.field.defaultValue, $$.val, 8);
+						}
+						else if($2.type == DataType::FLOAT){
+							*(float*)$$.val = *(float*)$4.val;
+							$$.field.defaultValue = new uchar[8];
+							memcpy($$.field.defaultValue, $$.val, 8);
+						}
+						else if($2.type == DataType::DATE){
+							memcpy($$.val, $4.val, 3);
+							$$.field.defaultValue = new uchar[8];
+							memcpy($$.field.defaultValue, $$.val, 8);
+						}
+						// a value will only be parsed as float, not numeric
+						// varchar and char are solved previously
+					}
+					else{ // wrong
+						Global::errors.push_back($4.pos);
+						YYABORT;
+					}
 					$$.field.hasDefault = true;
 				}
 			|	IDENTIFIER type NOT KW_NULL DEFAULT value
@@ -270,7 +323,7 @@ type		:	KW_INT
 					printf("char\n");
 					$$.type = DataType::CHAR;
 					int intVal = 0;
-					uchar code = strToInt($3.str, intVal);
+					uchar code = Field::strToInt($3.str, intVal);
 					if(code != 0 || intVal < 0 || intVal > 255){
 						Global::errors.push_back($3.pos);
 						YYABORT;
@@ -283,7 +336,7 @@ type		:	KW_INT
 					printf("varchar\n");
 					$$.type = DataType::VARCHAR;
 					int intVal = 0;
-					uchar code = strToInt($3.str, intVal);
+					uchar code = Field::strToInt($3.str, intVal);
 					if(code != 0 || intVal < 0 || intVal > 65535){
 						Global::errors.push_back($3.pos);
 						YYABORT;
@@ -296,7 +349,7 @@ type		:	KW_INT
 					printf("numeric\n");
 					$$.type = DataType::NUMERIC;
 					int intVal = 0, intVal0 = 0;
-					uchar code = strToInt($3.str, intVal), code0 = strToInt($5.str, intVal0);
+					uchar code = Field::strToInt($3.str, intVal), code0 = Field::strToInt($5.str, intVal0);
 					if(code != 0 || intVal < 1 || intVal > 38){
 						Global::errors.push_back($3.pos);
 						YYABORT;
@@ -335,24 +388,29 @@ value		:	INT_LIT
 					printf("int lit\n");
 					int intVal = 0;
 					ll llVal = 0;
-					uchar code = strToInt($1.str, intVal);
-					if(code == 0)
+					uchar code = Field::strToInt($1.str, intVal);
+					if(code == 0){
 						*(int*)$$.val = intVal;
+						$$.type = DataType::INT;
+					}
 					else{
-						code = strToLL($1.str, llVal);
+						code = Field::strToLL($1.str, llVal);
 						if(code != 0){
 							Global::errors.push_back($1.pos);
 							YYABORT;
 						}
-						else
+						else{
 							*(ll*)$$.val = llVal;
+							$$.type = DataType::BIGINT;
+						}
 					}
 				}
 			|	FLOAT_LIT
 				{
 					printf("float lit\n");
+					$$.type = DataType::FLOAT;
 					float floatVal = 0;
-					uchar code = strToFloat($1.str, floatVal);
+					uchar code = Field::strToFloat($1.str, floatVal);
 					if(code != 0){
 						Global::errors.push_back($1.pos);
 						YYABORT;
@@ -363,6 +421,32 @@ value		:	INT_LIT
 			|	DATE_LIT
 				{
 					printf("date lit\n");
+					$$.type = DataType::DATE;
+					int ym_sep = $1.str.find('-'), md_sep = $1.str.rfind('-');
+					int year = 0, month = 0, day = 0;
+					for(int i = 0; i < ym_sep; i++)
+						year = year * 10 + $1.str[i] - '0';
+					for(int i = ym_sep + 1; i < md_sep; i++)
+						month = month * 10 + $1.str[i] - '0';
+					for(int i = md_sep + 1; i < $1.str.length(); i++)
+						day = day * 10 + $1.str[i] - '0';
+					bool ok = true;
+					if(year == 0 || month == 0 || month > 12 || day == 0 || day > 31)
+						ok = false;
+					if(ok && day == 31 && (month == 4 || month == 6 || month == 9 || month == 11 ))
+						ok = false;
+					if(ok && month == 2){
+						if(day == 30)
+							ok = false;
+						else if(day == 29 && !((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)))
+							ok = false;
+					}
+					if(ok)
+						DataType::dateToBin(year, month, day, $$.val);
+					else{
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
 				}
 			| 	STRING_LIT
 				{
@@ -396,7 +480,6 @@ value		:	INT_LIT
 						Global::errors.push_back($1.pos);
 						YYABORT;
 					}
-					//
 				}
 			;
 

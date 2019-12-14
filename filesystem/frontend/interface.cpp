@@ -1,5 +1,6 @@
 
 #include <cstdio>
+#include "../MyDB/DBMS.h"
 // #include "yacc.tab.h" // yacc生成的头文件
 using namespace std;
 

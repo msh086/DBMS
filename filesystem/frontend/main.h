@@ -3,11 +3,12 @@
 #define MAIN_HPP
 
 #include <string>
-#include <stdio.h>//printf和FILE要用的
+#include <stdio.h>
+#include <vector>
 #include "../utils/pagedef.h" // 全局宏定义
 #include "Global.h" // lexer的辅助静态类
 #include "../RM/DataType.h"
-#include <vector>
+#include "Field.h"
 
 extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个需要使用的C函数，其声明都包括在extern "C"{}块里面，这样C++链接时才能成功链接它们。extern "C"用来在C++环境下设置C链接类型。
 {					//lex.l中也有类似的这段extern "C"，可以把它们合并成一段，放到共同的头文件main.h中
@@ -25,15 +26,6 @@ yylval是用YYSTYPE宏定义的，只要重定义YYSTYPE宏，就能重新指定
 // enum Keyword{DATABASE, DATABASES, TABLE, TABLES, SHOW, CREATE, DROP, USE, PRIMARY, KEY, NOT, KW_NULL, INSERT, INTO, VALUES, DELETE, FROM, WHERE, UPDATE, SET, 
 // 	SELECT, IS, INT, VARCHAR, CHAR, DEFAULT, CONSTRAINT, CHANGE, ALTER, ADD, RENAME, DESC, INDEX, AND, DATE, FLOAT, FOREIGN, REFERENCES, NUMERIC, DECIMAL};
 
-struct Field{
-	char name[MAX_ATTRI_NAME_LEN] = "";
-    uchar type = DataType::NONE;
-	ushort length = 0;
-	bool nullable = true;
-	bool hasDefault = false;
-	uchar* defaultValue = nullptr;
-};
-
 // 这是flex和yacc共用的数据结构,用于:flex向yacc传递数据;yacc产生式右侧向左侧传递数据
 struct Type//通常这里面每个成员，每次只会使用其中一个，一般是定义成union以节省空间(但这里用了string等复杂类型造成不可以)
 {
@@ -45,74 +37,6 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	uchar type = DataType::NONE;
 	uchar val[17] = {0};
 };
-
-const uchar INVALID_ARG = 1, OUT_OF_RANGE = 2, OTHER = 3;
-
-uchar strToInt(const string& str, int& dst){
-	try{
-		dst = std::stoi(str);
-		return 0;
-	}
-	catch(const std::invalid_argument& ia){
-		return INVALID_ARG;
-	}
-	catch(const std::out_of_range& oor){
-		return OUT_OF_RANGE;
-	}
-	catch(const std::exception& e){
-		return OTHER;
-	}
-}
-
-uchar strToLL(const string& str, ll& dst){
-	try{
-		dst = std::stoll(str);
-		return 0;
-	}
-	catch(const std::invalid_argument& ia){
-		return INVALID_ARG;
-	}
-	catch(const std::out_of_range& oor){
-		return OUT_OF_RANGE;
-	}
-	catch(const std::exception& e){
-		return OTHER;
-	}
-}
-
-uchar strToFloat(const string& str, float dst){
-	try{
-		dst = std::stof(str);
-		return 0;
-	}
-	catch(const std::invalid_argument& ia){
-		return INVALID_ARG;
-	}
-	catch(const std::out_of_range& oor){
-		return OUT_OF_RANGE;
-	}
-	catch(const std::exception& e){
-		return OTHER;
-	}
-}
-
-bool subTypeOf(uchar left, uchar right, uint llen, uint rlen){
-	if(left == DataType::NONE) // null lit can be converted to any type
-		return true;
-	if(left == DataType::INT && right == DataType::BIGINT) // int is subtype of bigint
-		return true;
-	if(left == DataType::INT && right == DataType::FLOAT) // int is subtype of float
-		return true;
-	if(left == DataType::CHAR && right == DataType::VARCHAR) // char is subtype of varchar
-		return true;
-	if(left == DataType::FLOAT && right == DataType::NUMERIC) // float is subtype of numeric: precision dosen't matter
-		return true;
-	if(left == DataType::CHAR && right == DataType::CHAR && llen <= rlen) // shorter char is subtype of longer char
-		return true;
-	if(left == DataType::VARCHAR && right == DataType::VARCHAR && llen <= rlen) // shorter varchar is subtype of longer varchar
-		return true;
-	return left == right;
-}
 
 
 #define YYSTYPE Type//把YYSTYPE(即yylval变量)重定义为struct Type类型，这样lex就能向yacc返回更多的数据了
