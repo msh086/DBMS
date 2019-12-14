@@ -250,6 +250,93 @@ class Database{
                 printf("No table named %.*s\n", MAX_TABLE_NAME_LEN, tablename);
         }
 
+        void AlterTableAddCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
+            // TODO
+        }
+
+        void AlterTableDropCol(const char* colName){
+            // TODO
+        }
+
+        void AlterTableChangeCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
+            // TODO
+        }
+
+        // void AlterTableAddPrimaryKey(const char** colNames, uint colNum){
+        //     // TODO
+        // }
+
+        // void AlterTableDropPrimaryKey(){
+        //     // TODO
+        // }
+
+        bool RenameTable(const char* oldName, const char* newName){
+            // TODO, close first if opened?
+            uchar type = DataType::CHAR;
+            ushort length = MAX_TABLE_NAME_LEN;
+            uchar cmp = Comparator::Eq;
+            infoScanner->SetDemand((const uchar*)oldName, &type, &length, 0, 1, &cmp);
+            while(infoScanner->NextRecord(rec)){
+                memset(rec->GetData(), 0, MAX_TABLE_NAME_LEN);
+                memcpy(rec->GetData(), newName, strlen(newName));
+                info->UpdateRecord(*rec->GetRid(), rec->GetData(), 0, 0, MAX_TABLE_NAME_LEN);
+                infoScanner->Reset();
+                return true;
+            }
+            infoScanner->Reset();
+            return false;
+        }
+
+        void InsertLongVarchar(const char* str, uint length){
+            uchar buf[VARCHAR_RECORD_LEN] = {0};
+            RID prev = RID(), cur = RID();
+            bool hasPrev = false;
+            while(length > VARCHAR_FRAG_LEN){
+                // next page(4), next slot(4), length(2), data(502)
+                memset(buf, 0, 10);
+                *(ushort*)(buf + 8) = VARCHAR_FRAG_LEN;
+                memcpy(buf + 10, str, VARCHAR_FRAG_LEN);
+                varchar->InsertRecord(buf, &cur);
+                // update prev record's nextPage & nextSlot
+                if(hasPrev){
+                    *(uint*)buf = cur.GetPageNum();
+                    *(uint*)(buf + 4) = cur.GetSlotNum();
+                    varchar->UpdateRecord(prev, buf, 0, 0, 8);
+                }
+                // update loop
+                hasPrev = true;
+                prev = cur;
+                str += VARCHAR_FRAG_LEN;
+                length -= VARCHAR_FRAG_LEN;
+            }
+            // now length < VARCHAR_FRAG_LEN
+            if(length > 0){
+                memset(buf, 0, 10);
+                *(ushort*)(buf + 8) = length;
+                memcpy(buf + 10, str, length);
+                memset(buf + 10 + length, 0, VARCHAR_FRAG_LEN - length);
+                varchar->InsertRecord(buf, &cur);
+                if(hasPrev){
+                    *(uint*)buf = cur.GetPageNum();
+                    *(uint*)(buf + 4) = cur.GetSlotNum();
+                    varchar->UpdateRecord(prev, buf, 0, 0, 8);
+                }
+            }
+        }
+
+        void RemoveLongVarchar(const RID& rid){
+            Record tmpRec = Record();
+            RID tmpRID = RID(rid.PageNum, rid.SlotNum);
+            while(tmpRID.PageNum && tmpRID.SlotNum){
+                varchar->GetRecord(tmpRID, &tmpRec);
+                uint pn = *(uint*)tmpRec.GetData(), sn = *(uint*)(tmpRec.GetData() + 4);
+                varchar->DeleteRecord(tmpRID);
+                tmpRec.FreeMemory();
+                tmpRID.PageNum = pn;
+                tmpRID.SlotNum = sn;
+            }
+        }
+
         /**
          * 关闭这个数据库
         */

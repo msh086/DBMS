@@ -29,7 +29,7 @@ class DBMS{
                 return true;
             }
             scanner->Reset();
-            return true;
+            return false;
         }
 
         // 关闭已经打开的数据库,请先检查currentDB是否为空

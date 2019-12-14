@@ -238,16 +238,17 @@ class Table{
         }
 
         /**
-         * Set the record of the corresponding RID to record
+         * 更新由RID指定的记录
+         * 从data的srcOffset开始的length个字节被复制到对应记录从dstOffset开始的length个字节
         */
-        void UpdateRecord(const Record& record){
-            if(record.id->PageNum == 0){
+        void UpdateRecord(const RID& rid, const uchar* data, uint dstOffset, uint srcOffset, uint length){
+            if(rid.PageNum == 0){
                 printf("In Table::UpdateRecord, trying to update a record from header page\n");
                 return;
             }
-            tmpBuf = bpm->reusePage(fid, record.GetRid()->GetPageNum(), tmpIdx, tmpBuf);
-            trackers.push_back(BufTracker(record.GetRid()->PageNum, tmpIdx));
-            memcpy(tmpBuf + record.GetRid()->GetSlotNum() * header->recordLenth, record.GetData(), header->recordLenth);
+            tmpBuf = bpm->reusePage(fid, rid.PageNum, tmpIdx, tmpBuf);
+            trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
+            memcpy(tmpBuf + rid.SlotNum * header->recordLenth + dstOffset, data + srcOffset, length);
             bpm->markDirty(tmpIdx);
         }
 
@@ -394,14 +395,14 @@ class Table{
         /**
          * Caution, this action writes back data not only in this table, but all the tables
         */
-        void WriteBack(){ // TODO write back only pages related to this table
+        void WriteBack(){ 
             if(headerDirty){
                 headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
                 header->ToString(headerBuf);
                 bpm->markDirty(headerIdx);
             }
             for(auto it = trackers.begin(); it != trackers.end(); it++){
-                int curPage ,curFid;
+                int curPage, curFid;
                 bpm->getKey(it->idx, curFid, curPage);
                 if(fid == curFid && it->page == curPage)
                     bpm->writeBack(it->idx);
@@ -440,14 +441,6 @@ class Table{
          * ! Unchecked: name length illegal
         */
         bool RemoveIndex(const char* idxName);
-
-        void InsertLongVarchar(const char* str, int length){
-            // TODO
-        }
-
-        void RemoveLongVarchar(const RID& rid){
-            // TODO
-        }
 
         int FileID(){
             return fid;

@@ -3,6 +3,7 @@
 class Table;
 class BplusTree;
 class Scanner;
+class Database;
 
 class RID
 {
@@ -25,6 +26,7 @@ class RID
         friend class Table;
         friend class BplusTree;
         friend class Scanner;
+        friend class Database;
 };
 
 
