@@ -34,7 +34,7 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 %token 	CHAR 		DEFAULT		CONSTRAINT	CHANGE
 %token 	ALTER		ADD			RENAME	DESC
 %token	INDEX		AND			DATE 	FLOAT
-%token	FOREIGN		REFERENCES	NUMERIC	DECIMAL
+%token	FOREIGN		REFERENCES	NUMERIC
 %token 	ON
 // 以上是SQL关键字
 %token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
@@ -163,17 +163,75 @@ fieldList	:	fieldList ',' field
 			;
 
 // field可以组成fieldList用于建表,也可以在alter add里面用于增加列
+// 名字长度已经经过检查
 field		:	IDENTIFIER type
 				{
 					printf("id type\n");
+					if($1.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					else
+						memcpy($$.field.name, $1.str.data(), $1.str.length());
+					$$.field.type = $2.type;
+					$$.field.length = DataType::lengthOf($2.type, *(uint*)$2.val);
 				}
 			|	IDENTIFIER type NOT KW_NULL
 				{
 					printf("not null\n");
+					if($1.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					else
+						memcpy($$.field.name, $1.str.data(), $1.str.length());
+					$$.field.type = $2.type;
+					$$.field.length = DataType::lengthOf($2.type, *(uint*)$2.val);
+					$$.field.nullable = false;
 				}
 			|	IDENTIFIER type DEFAULT value
 				{
 					printf("default\n");
+					if($1.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					else
+						memcpy($$.field.name, $1.str.data(), $1.str.length());
+					$$.field.type = $2.type;
+					$$.field.length = DataType::lengthOf($2.type, *(uint*)$2.val);
+					// decide subtype
+					if($4.type == DataType::NONE){ // value is null
+						// do nothing, $$.field.defaultValue will be nullptr
+					}
+					if($4.type == DataType::INT && $2.type == DataType::BIGINT){
+						*(ll*)$$.val = *(int*)$4.val;
+						$$.field.defaultValue = $$.val;
+					}
+					else if($4.type == DataType::INT && $2.type = DataType::FLOAT){
+						*(float*)$$.val = *(int*)$4.val;
+						$$.field.defaultValue = $$.val;
+					}
+					else if($4.type == DataType::FLOAT && $2.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val;
+						DataType::floatToBin(*(float*)$2.val < 0, $2.str.data(), $2.str.find('.'), $$.val, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = $$.val;
+					}
+					else if($4.type == DataType::INT && $2.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val;
+						DataType::floatToBin(*(int*)$2.val < 0, $2.str.data(), $2.str.length(), $$.val, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = $$.val;
+					}
+					else if($4.type == DataType::BIGINT && $2.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val;
+						DataType::floatToBin(*(ll*)$2.val < 0, $2.str.data(), $2.str.length(), $$.val, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = $$.val;
+					}
+					else if($4.type == DataType::CHAR && $2.type == DataType::VARCHAR){
+						// TODO
+					}
+					// TODO
+					$$.field.hasDefault = true;
 				}
 			|	IDENTIFIER type NOT KW_NULL DEFAULT value
 				{
@@ -189,36 +247,69 @@ field		:	IDENTIFIER type
 				}
 			;
 
+// Type.type : 类型
+// Type.val : 对于INT, DATE, FLOAT来说此字段无用; 对于VARCHAR, CHAR来说表示长度, 对于NUMERIC来说表示两个长度参数, 都将结果以int类型存到val处
+// 长度都已经经过检查
 type		:	KW_INT
 				{
 					printf("type int\n");
+					$$.type = DataType::INT;
 				}
 			|	DATE
 				{
 					printf("type data\n");
+					$$.type = DataType::DATE;
 				}
 			|	FLOAT
 				{
 					printf("type float\n");
+					$$.type = DataType::FLOAT;
 				}
 			|	CHAR '(' INT_LIT ')'
 				{
 					printf("char\n");
+					$$.type = DataType::CHAR;
+					int intVal = 0;
+					uchar code = strToInt($3.str, intVal);
+					if(code != 0 || intVal < 0 || intVal > 255){
+						Global::errors.push_back($3.pos);
+						YYABORT;
+					}
+					else
+						*(int*)$$.val = intVal;
 				}
 			|	VARCHAR	'(' INT_LIT ')'
 				{
 					printf("varchar\n");
+					$$.type = DataType::VARCHAR;
+					int intVal = 0;
+					uchar code = strToInt($3.str, intVal);
+					if(code != 0 || intVal < 0 || intVal > 65535){
+						Global::errors.push_back($3.pos);
+						YYABORT;
+					}
+					else
+						*(int*)$$.val = intVal;
 				}
 			|	NUMERIC '(' INT_LIT ',' INT_LIT ')'
 				{
 					printf("numeric\n");
-				}
-			|	DECIMAL '(' INT_LIT ',' INT_LIT ')'
-				{
-					printf("decimal\n");
+					$$.type = DataType::NUMERIC;
+					int intVal = 0, intVal0 = 0;
+					uchar code = strToInt($3.str, intVal), code0 = strToInt($5.str, intVal0);
+					if(code != 0 || intVal < 1 || intVal > 38){
+						Global::errors.push_back($3.pos);
+						YYABORT;
+					}
+					else if(code0 != 0 || intVal0 < 0 || intVal0 > intVal){
+						Global::errors.push_back($5.pos);
+						YYABORT;
+					}
+					*(uint*)$$.val = (intVal << 8) + intVal0; // p, s are stored in val
 				}
 			;
 
+// insert into {tablename} values(valueList), (valueList), (valueList) ...
 valueLists	:	'(' valueList ')'
 				{
 					printf("valueLists base\n");
@@ -242,10 +333,32 @@ valueList	:	value
 value		:	INT_LIT
 				{
 					printf("int lit\n");
+					int intVal = 0;
+					ll llVal = 0;
+					uchar code = strToInt($1.str, intVal);
+					if(code == 0)
+						*(int*)$$.val = intVal;
+					else{
+						code = strToLL($1.str, llVal);
+						if(code != 0){
+							Global::errors.push_back($1.pos);
+							YYABORT;
+						}
+						else
+							*(ll*)$$.val = llVal;
+					}
 				}
 			|	FLOAT_LIT
 				{
 					printf("float lit\n");
+					float floatVal = 0;
+					uchar code = strToFloat($1.str, floatVal);
+					if(code != 0){
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					else
+						*(float*)$$.val = floatVal;
 				}
 			|	DATE_LIT
 				{
@@ -254,10 +367,36 @@ value		:	INT_LIT
 			| 	STRING_LIT
 				{
 					printf("string lit\n");
+					if($1.str.length() <= 255)
+						$$.type = DataType::CHAR;
+					else if($1.str.length() <= 65535)
+						$$.type = DataType::VARCHAR;
+					else{
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
 				}
 			|	KW_NULL
 				{
 					printf("null lit\n");
+					$$.type = DataType::NONE; // use NONE to record null lit
+				}
+			| 	'-' value // minus: for float, int and bigint
+				{
+					if($2.type == DataType::FLOAT){
+						*(float*)$2.val = -*(float*)$2.val;
+					}
+					else if($2.type == DataType::INT){
+						*(int*)$2.val = -*(int*)$2.val;
+					}
+					else if($2.type == DataType::BIGINT){
+						*(ll*)$2.val = -*(ll*)$2.val;
+					}
+					else{
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					//
 				}
 			;
 

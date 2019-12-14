@@ -62,6 +62,12 @@ class Database{
         return true;
     }
 
+    char filePathBuf[MAX_DB_NAME_LEN + MAX_TABLE_NAME_LEN + 3 + 4 + 1] = ""; // 3 = ./***/***, 4 = ***-TMP, 1 = \0
+
+    const char* getPath(const char* tableName){
+        sprintf(filePathBuf, "./%s/%s", name, tableName);
+        return filePathBuf;
+    }
 
     // 存储所有用户表
     Table *info = nullptr;
@@ -78,14 +84,14 @@ class Database{
         Database(const char* databaseName){
             memcpy(name, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
             int fid_info, fid_idx, fid_varchar;
-            bool openret_info = fm->openFile(DB_RESERVED_TABLE_NAME, fid_info),
-                openret_idx = fm->openFile(DB_RESERVED_TABLE_NAME, fid_idx),
-                openret_varchar = fm->openFile(DB_RESERVED_TABLE_NAME, fid_varchar);
+            bool openret_info = fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_info),
+                openret_idx = fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_idx),
+                openret_varchar = fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_varchar);
             if(!openret_info){
                 printf("Initializing db info\n");
                 // create info
-                fm->createFile(DB_RESERVED_TABLE_NAME);
-                fm->openFile(DB_RESERVED_TABLE_NAME, fid_info);
+                fm->createFile(getPath(DB_RESERVED_TABLE_NAME));
+                fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_info);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
                 header->recordLenth = MAX_TABLE_NAME_LEN;
@@ -106,8 +112,8 @@ class Database{
             if(!openret_idx){
                 printf("Initializing db index\n");
                 // create info
-                fm->createFile(IDX_RESERVED_TABLE_NAME);
-                fm->openFile(IDX_RESERVED_TABLE_NAME, fid_info);
+                fm->createFile(getPath(IDX_RESERVED_TABLE_NAME));
+                fm->openFile(getPath(IDX_RESERVED_TABLE_NAME), fid_info);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
                 header->recordLenth = PAGE_SIZE; // TODO the null byte?
@@ -126,8 +132,8 @@ class Database{
             if(!openret_varchar){
                 printf("Initializing db varchar\n");
                 // create info
-                fm->createFile(VARCHAR_RESERVED_TABLE_NAME);
-                fm->openFile(VARCHAR_RESERVED_TABLE_NAME, fid_info);
+                fm->createFile(getPath(VARCHAR_RESERVED_TABLE_NAME));
+                fm->openFile(getPath(VARCHAR_RESERVED_TABLE_NAME), fid_info);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
                 header->recordLenth = VARCHAR_RECORD_LEN;;
@@ -167,18 +173,20 @@ class Database{
             varchar = new Table(fid_varchar, VARCHAR_RESERVED_TABLE_NAME, this);
         }
 
-        void CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
+        bool CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
+            if(tableExists(tablename))
+                return false;
             //TODO : check on header validity?
-            bool createret = fm->createFile(tablename);
+            bool createret = fm->createFile(getPath(tablename));
             if(!createret){
                 printf("In Database::CreateTable, cannot create file\n");
-                return;
+                return false;
             }
             int fid;
-            bool openret = fm->openFile(tablename, fid);
+            bool openret = fm->openFile(getPath(tablename), fid);
             if(!openret){
                 printf("In Database::CreateTable, cannot open file\n");
-                return;
+                return false;
             }
             uchar* buffer = new uchar[PAGE_SIZE]{};
             //handle default record, which always exists not matter the value of defaultKeyMask
@@ -205,13 +213,18 @@ class Database{
             if(closeret != 0){
                 printf("In Databse::CreateTable, cannot close file\n");
             }
+            return true;
         }
 
         /**
          * Do not delete an opened file!
         */
-        void DeleteTable(const char* tablename){
-            remove(tablename);
+        bool DeleteTable(const char* tablename){
+            if(tableExists(tablename)){
+                remove(getPath(tablename));
+                return true;
+            }
+            return false;
             //TODO : cascade deletion for foreign keys
         }
         /**
@@ -221,7 +234,7 @@ class Database{
         */
         Table* OpenTable(const char* tablename){
             int fid;
-            bool openret = fm->openFile(tablename, fid);
+            bool openret = fm->openFile(getPath(tablename), fid);
             if(!openret){
                 printf("In Database::OpenTable, cannot open file\n");
                 return nullptr;
@@ -250,17 +263,19 @@ class Database{
                 printf("No table named %.*s\n", MAX_TABLE_NAME_LEN, tablename);
         }
 
-        void AlterTableAddCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
-            // TODO
-        }
+        // ! All method below should be at table level
 
-        void AlterTableDropCol(const char* colName){
-            // TODO
-        }
+        // void AlterTableAddCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
+        //     // TODO
+        // }
 
-        void AlterTableChangeCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
-            // TODO
-        }
+        // void AlterTableDropCol(const char* colName){
+        //     // TODO
+        // }
+
+        // void AlterTableChangeCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
+        //     // TODO
+        // }
 
         // void AlterTableAddPrimaryKey(const char** colNames, uint colNum){
         //     // TODO

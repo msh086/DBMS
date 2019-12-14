@@ -292,6 +292,26 @@ class Table{
             return COL_ID_NONE;
         }
 
+        void AlterTableAddCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
+            // TODO
+        }
+
+        void AlterTableDropCol(const char* colName){
+            // TODO
+        }
+
+        void AlterTableChangeCol(const char* colName, uchar type, bool nullable, ushort length, bool isDft, const uchar* dftVal){
+            // TODO
+        }
+
+        void AlterTableAddPrimaryKey(const char** colNames, uint colNum){
+            // TODO
+        }
+
+        void AlterTableDropPrimaryKey(){
+            // TODO
+        }
+
         /**
          * Add foreign constraint, return if success
          * Same constraint conditions with different names are permitted

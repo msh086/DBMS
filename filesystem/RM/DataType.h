@@ -71,7 +71,7 @@ class DataType{
             DATE = 6,
             INT = 7;
         
-        // get the length of a type
+        // get the length of a type in bytes
         static int lengthOf(uchar type, ushort length){
             switch (type)
             {
@@ -94,7 +94,7 @@ class DataType{
             case NUMERIC:{
                 int p = length >> 8;
                 int p_div_3 = p / 3, p_mod_3 = p % 3;
-                return p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0);
+                return 1 + (p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0) + 7) / 8;
                 break;
             }
             default: // char, varchar don't have a fixed length
@@ -284,7 +284,7 @@ class DataType{
 
         // dotleft.dotright, if there is no dot, the string would be ""
         // the bindata includes the 1 byte header
-        static void floatToBin(bool isNegative, const char* dotleft, const char* dotright, uchar* bindata, int p, int s){
+        static void floatToBin(bool isNegative, const char* strdata, int dotOffset, uchar* bindata, int p, int s){
             int p_div_3 = p / 3, p_mod_3 = p % 3;
             int totalBytes = 1 + (10 * p_div_3 + (p_mod_3 > 0 ? (p_mod_3 * 3 + 1) : 0) + 7) / 8; // ceiling(10k + f(remain)) + 1
             memset(bindata, 0, totalBytes); // clear memory
@@ -293,8 +293,11 @@ class DataType{
             
             uchar digits[p] = {0}; // buffer
             int ptr = 0;
-
-            int lenl = strlen(dotleft), lenr = strlen(dotright);
+            // init length
+            int totalLength = strlen(strdata);
+            int lenl = dotOffset, lenr = totalLength - 1 - dotOffset;
+            const char* dotleft = strdata, *dotright = strdata + dotOffset + 1;
+            // strip zeros
             int firstNonZero = 0, lastNonZero = lenr - 1;
             while(firstNonZero < lenl && dotleft[firstNonZero] == '0') // strip the leading and ending zeros
                 firstNonZero++;
