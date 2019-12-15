@@ -27,6 +27,7 @@ class DBMS{
             // pad the databaseName to full length, so that comparison can take place correctly
             uchar buf[MAX_DB_NAME_LEN] = "";
             memcpy(buf, databaseName, strlen(databaseName));
+            rec->FreeMemory();
             scanner->SetDemand(buf, &type, &length, 0, 1, &cmp);
             if(scanner->NextRecord(rec)){
                 scanner->Reset();
@@ -156,6 +157,10 @@ class DBMS{
                 return false;
         }
 
+        /**
+         * show databases命令
+         * 返回可以遍历ALL_DB表的scanner
+        */
         Scanner* ShowDatabases(){
             scanner->SetDemand([](const Record& rec)->bool{return true;});
             return scanner;

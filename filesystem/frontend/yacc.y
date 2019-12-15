@@ -35,7 +35,7 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 %token 	ALTER		ADD			RENAME	DESC
 %token	INDEX		AND			DATE 	FLOAT
 %token	FOREIGN		REFERENCES	NUMERIC
-%token 	ON
+%token 	ON			TO
 // 以上是SQL关键字
 %token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
 %token 	IDENTIFIER	GE			LE 			NE
@@ -150,7 +150,38 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 				{
 					printf("alter add col\n");
 				}
-			;	// more!
+			:	ALTER TABLE IDENTIFIER DROP IDENTIFIER
+				{
+					printf("alter drop col\n");
+				}
+			:	ALTER TABLE IDENTIFIER CHANGE IDENTIFIER field
+				{
+					printf("alter change field\n");
+				}
+			:	ALTER TABLE IDENTIFIER RENAME TO IDENTIFIER
+				{
+					printf("alter rename\n");
+				}
+			:	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
+				{
+					printf("alter add primary\n");
+				}
+			:	ALTER TABLE IDENTIFIER DROP PRIMARY KEY
+				{
+					printf("alter drop primary\n");
+				}
+			:	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' colList ')' REFERENCES IDENTIFIER '(' colList ')'
+				{
+					printf("alter add foreign\n");
+				}
+			:	ALTER TABLE IDENTIFIER DROP FOREIGN KEY IDENTIFIER
+				{
+					printf("alter drop foreign\n");
+				}
+			;
+			// we do not support:
+			// alter table {tablename} add constraint {primarykeyname} primary key ({col}...)
+			// alter table {tablename} drop primary key {primarykeyname}
 
 // fieldList 是建表时使用的
 fieldList	:	fieldList ',' field
@@ -170,7 +201,7 @@ fieldList	:	fieldList ',' field
 // 名字长度已经经过检查
 field		:	IDENTIFIER type
 				{
-					printf("id type\n");
+					printf("field normal\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::errors.push_back($1.pos);
 						YYABORT;
@@ -182,7 +213,7 @@ field		:	IDENTIFIER type
 				}
 			|	IDENTIFIER type NOT KW_NULL
 				{
-					printf("not null\n");
+					printf("field not null\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::errors.push_back($1.pos);
 						YYABORT;
@@ -195,7 +226,7 @@ field		:	IDENTIFIER type
 				}
 			|	IDENTIFIER type DEFAULT value
 				{
-					printf("default\n");
+					printf("field default\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::errors.push_back($1.pos);
 						YYABORT;
@@ -275,14 +306,100 @@ field		:	IDENTIFIER type
 			|	IDENTIFIER type NOT KW_NULL DEFAULT value
 				{
 					printf("not null default\n");
+					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					else
+						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+					$$.field.type = $2.val.type;
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
+					// decide subtype
+					if($6.val.type == DataType::NONE){ // value is null, which conflicts with not null constraint
+						Global::errors.push_back($6.pos);
+						YYABORT;
+					}
+					if($6.val.type == DataType::INT && $2.val.type == DataType::BIGINT){
+						*(ll*)$$.val.bytes = *(int*)$6.val.bytes;
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::INT && $2.val.type == DataType::FLOAT){
+						*(float*)$$.val.bytes = *(int*)$6.val.bytes;
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::FLOAT && $2.val.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val.bytes;
+						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
+						DataType::floatToBin(*(float*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.find('.'), $$.val.bytes, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::INT && $2.val.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val.bytes;
+						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
+						DataType::floatToBin(*(int*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::BIGINT && $2.val.type == DataType::NUMERIC){
+						uint pns = *(uint*)$2.val.bytes;
+						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
+						DataType::floatToBin(*(ll*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::CHAR && $2.val.type == DataType::VARCHAR){
+						$$.val.str = $6.val.str;
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::CHAR && $2.val.type == DataType::CHAR && $6.val.str.length() <= *(int*)$2.val.bytes){
+						$$.val.str = $6.val.str;
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == DataType::VARCHAR && $2.val.type == DataType::VARCHAR && $6.val.str.length() <= *(int*)$2.val.bytes){
+						$$.val.str = $6.val.str;
+						$$.field.defaultValue = &$$.val;
+					}
+					else if($6.val.type == $2.val.type){
+						if($2.val.type == DataType::INT){
+							*(int*)$$.val.bytes = *(int*)$6.val.bytes;
+							$$.field.defaultValue = &$$.val;
+						}
+						else if($2.val.type == DataType::BIGINT){
+							*(ll*)$$.val.bytes = *(ll*)$6.val.bytes;
+							$$.field.defaultValue = &$$.val;
+						}
+						else if($2.val.type == DataType::FLOAT){
+							*(float*)$$.val.bytes = *(float*)$6.val.bytes;
+							$$.field.defaultValue = &$$.val;
+						}
+						else if($2.val.type == DataType::DATE){
+							memcpy($$.val.bytes, $6.val.bytes, 3);
+							$$.field.defaultValue = &$$.val;
+						}
+						// a value will only be parsed as float, not numeric
+						// varchar and char are solved previously
+					}
+					else{ // wrong
+						Global::errors.push_back($6.pos);
+						YYABORT;
+					}
+					$$.field.hasDefault = true;
 				}
 			|	PRIMARY KEY '(' IdList ')'
 				{
 					printf("primary key\n");
+					Constraint tmp;
+					tmp.IDList = $4.IDList;
+					tmp.isFK = false;
+					$$.constraintList.push_back(tmp);
 				}
-			|	FOREIGN KEY '(' IDENTIFIER ')' REFERENCES IDENTIFIER '(' IDENTIFIER ')'
+			|	FOREIGN KEY '(' IDENTIFIER ')' REFERENCES IDENTIFIER '(' IDENTIFIER ')' // 建表时创建外键约束,只能建立1对1的映射; 多对多需要使用alter命令
 				{
 					printf("foreign\n");
+					Constraint tmp;
+					tmp.IDList.push_back($4.val.str);
+					tmp.IDList.push_back($7.val.str);
+					tmp.IDList.push_back($9.val.str);
+					tmp.isFK = true;
+					$$.constraintList.push_back(tmp);
 				}
 			;
 

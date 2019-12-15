@@ -36,13 +36,31 @@ using namespace std;
 int main() {
 	DBMS* dbms = DBMS::Instance();
 	dbms->Init();
+	// // TODO
+	// ? show databases
+	// Scanner* scanner = dbms->ShowDatabases();
+	// Record rec;
+	// printf("All databases\n");
+	// while(scanner->NextRecord(&rec)){
+	// 	printf("%s\n", rec.GetData());
+	// 	rec.FreeMemory();
+	// }
+	// scanner->Reset();
+	// ? create database
 	dbms->CreateDatabase("TestDB");
+	// ? use database
 	Database* db = dbms->UseDatabase("TestDB");
+	// ? create table
 	Header header;
 	header.recordLenth = 10;
-	// TODO
 	db->CreateTable("TestTB", &header, nullptr);
-
+	// ? show tables
+	// Scanner* tables = db->ShowTables();
+	// while(tables->NextRecord(&rec)){
+	// 	printf("%s\n", rec.GetData());
+	// 	rec.FreeMemory();
+	// }
+	// tables->Reset();
 
 	dbms->Close();
 

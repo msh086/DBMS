@@ -63,13 +63,14 @@ class Database{
         uchar type = DataType::CHAR;
         ushort length = MAX_TABLE_NAME_LEN;
         uchar cmp = Comparator::Eq;
+        rec->FreeMemory();
         infoScanner->SetDemand((const uchar*)tableName, &type, &length, 0, 1, &cmp);
         if(infoScanner->NextRecord(rec)){
             infoScanner->Reset();
             return true;
         }
         infoScanner->Reset();
-        return true;
+        return false;
     }
 
     char filePathBuf[MAX_DB_NAME_LEN + MAX_TABLE_NAME_LEN + 3 + 4 + 1] = ""; // 3 = ./***/***, 4 = ***-TMP, 1 = \0
@@ -293,15 +294,14 @@ class Database{
             ushort length = MAX_TABLE_NAME_LEN;
             uchar cmp = Comparator::Eq;
             infoScanner->SetDemand((const uchar*)oldName, &type, &length, 0, 1, &cmp);
-            while(infoScanner->NextRecord(rec)){
+            if(tableExists(oldName)){ // after calling tableExist(name), the found record is stored in 'rec'
                 memset(rec->GetData(), 0, MAX_TABLE_NAME_LEN);
                 memcpy(rec->GetData(), newName, strlen(newName));
                 info->UpdateRecord(*rec->GetRid(), rec->GetData(), 0, 0, MAX_TABLE_NAME_LEN);
-                infoScanner->Reset();
                 return true;
             }
-            infoScanner->Reset();
-            return false;
+            else
+                return false;
         }
 
         void InsertLongVarchar(const char* str, uint length){
@@ -352,6 +352,13 @@ class Database{
                 tmpRID.PageNum = pn;
                 tmpRID.SlotNum = sn;
             }
+        }
+
+        Scanner* ShowTables(){
+            uchar cmp = Comparator::Any;
+            // infoScanner->SetDemand(nullptr, nullptr, nullptr, 0, 0, &cmp);
+            infoScanner->SetDemand([](const Record& record)->bool{return true;});
+            return infoScanner;
         }
 
         /**

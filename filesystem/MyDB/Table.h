@@ -207,6 +207,7 @@ class Table{
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
             int firstEmptySlot = firstZeroBit();
             setBit(firstEmptySlot);
+            bpm->markDirty(headerIdx); // the bit map is not a part of header, it could only be written back by bpm
             header->recordNum++;
             if(firstEmptySlot == header->exploitedNum)
                 header->exploitedNum++;
@@ -230,6 +231,7 @@ class Table{
             trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
             int slotNumber = RIDtoUint(&rid);
             clearBit(slotNumber);
+            bpm->markDirty(headerIdx);
             if(slotNumber == header->exploitedNum - 1)
                 header->exploitedNum--;
             header->recordNum--;
@@ -420,6 +422,7 @@ class Table{
                 headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
                 header->ToString(headerBuf);
                 bpm->markDirty(headerIdx);
+                bpm->writeBack(headerIdx); // marking dirty is not enough... write it back
             }
             for(auto it = trackers.begin(); it != trackers.end(); it++){
                 int curPage, curFid;

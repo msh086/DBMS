@@ -110,6 +110,7 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 "numeric"		{yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;}
 "decimal"		{yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;} // trick: decimal is the same as numeric
 "on"			{yylval.pos = Global::pos; Global::pos += yyleng; return ON;}
+"to"			{yylval.pos = Global::pos; Global::pos += yyleng; return TO;}
 
 ">="			{yylval.pos = Global::pos; Global::pos += yyleng; return GE;}
 "<="			{yylval.pos = Global::pos; Global::pos += yyleng; return LE;}

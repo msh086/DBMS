@@ -50,6 +50,11 @@ struct WhereInstr{
 	bool isExprCol = false;
 };
 
+struct Constraint{
+	std::vector<std::string> IDList;
+	bool isFK = false;
+};
+
 // 这是flex和yacc共用的数据结构,用于:flex向yacc传递数据;yacc产生式右侧向左侧传递数据
 struct Type//通常这里面每个成员，每次只会使用其中一个，一般是定义成union以节省空间(但这里用了string等复杂类型造成不可以)
 {
@@ -76,6 +81,8 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	std::vector<std::string> IDList;
 	// ... where x op x and x op x and ...
 	std::vector<WhereInstr> condList;
+	// constraint type
+	std::vector<Constraint> constraintList;
 };
 
 
