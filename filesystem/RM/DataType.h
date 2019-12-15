@@ -477,7 +477,7 @@ class DataType{
 
         static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(!eq(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))));
+                if(!eq(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))))
                     return false;
                 int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
@@ -517,7 +517,7 @@ class DataType{
         */
         static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar cmp){
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp));
+                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp))
                     return false;
                 int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
@@ -531,7 +531,7 @@ class DataType{
         */
         static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp){
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp[i]));
+                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp[i]))
                     return false;
                 int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
                 left += length;
