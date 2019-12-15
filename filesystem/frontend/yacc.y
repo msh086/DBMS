@@ -76,13 +76,28 @@ Stmt		:	SysStmt ';'
 SysStmt		:	SHOW DATABASES
 				{
 					printf("show db\n");
-
+					Scanner* scanner = Global::dbms->ShowDatabases();
+					Record rec;
+					while(scanner->NextRecord(&rec)){
+						printf("%s\n", rec.GetData());
+						rec.FreeMemory();
+					}
+					scanner->Reset();
 				}
 			;
 
 DbStmt		:	CREATE DATABASE IDENTIFIER
 				{
 					printf("create db\n");
+					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::newError($3.pos, Global::format("Database name should be no longer than %d", MAX_TABLE_NAME_LEN));
+						YYABORT;
+					}
+					bool createRet = Global::dbms->CreateDatabase($3.val.str.data());
+					if(!createRet){
+						Global::newError($3.pos, "Database with the same name already exists");
+						YYABORT;
+					}
 				}
 			|	DROP DATABASE IDENTIFIER
 				{
@@ -150,31 +165,31 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 				{
 					printf("alter add col\n");
 				}
-			:	ALTER TABLE IDENTIFIER DROP IDENTIFIER
+			|	ALTER TABLE IDENTIFIER DROP IDENTIFIER
 				{
 					printf("alter drop col\n");
 				}
-			:	ALTER TABLE IDENTIFIER CHANGE IDENTIFIER field
+			|	ALTER TABLE IDENTIFIER CHANGE IDENTIFIER field
 				{
 					printf("alter change field\n");
 				}
-			:	ALTER TABLE IDENTIFIER RENAME TO IDENTIFIER
+			|	ALTER TABLE IDENTIFIER RENAME TO IDENTIFIER
 				{
 					printf("alter rename\n");
 				}
-			:	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
+			|	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
 				{
 					printf("alter add primary\n");
 				}
-			:	ALTER TABLE IDENTIFIER DROP PRIMARY KEY
+			|	ALTER TABLE IDENTIFIER DROP PRIMARY KEY
 				{
 					printf("alter drop primary\n");
 				}
-			:	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' colList ')' REFERENCES IDENTIFIER '(' colList ')'
+			|	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' colList ')' REFERENCES IDENTIFIER '(' colList ')'
 				{
 					printf("alter add foreign\n");
 				}
-			:	ALTER TABLE IDENTIFIER DROP FOREIGN KEY IDENTIFIER
+			|	ALTER TABLE IDENTIFIER DROP FOREIGN KEY IDENTIFIER
 				{
 					printf("alter drop foreign\n");
 				}
@@ -203,7 +218,7 @@ field		:	IDENTIFIER type
 				{
 					printf("field normal\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					else
@@ -215,7 +230,7 @@ field		:	IDENTIFIER type
 				{
 					printf("field not null\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					else
@@ -228,7 +243,7 @@ field		:	IDENTIFIER type
 				{
 					printf("field default\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					else
@@ -298,7 +313,7 @@ field		:	IDENTIFIER type
 						// varchar and char are solved previously
 					}
 					else{ // wrong
-						Global::errors.push_back($4.pos);
+						Global::newError($4.pos, "Default value and field type are incompatible");
 						YYABORT;
 					}
 					$$.field.hasDefault = true;
@@ -307,7 +322,7 @@ field		:	IDENTIFIER type
 				{
 					printf("not null default\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					else
@@ -316,7 +331,7 @@ field		:	IDENTIFIER type
 					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 					// decide subtype
 					if($6.val.type == DataType::NONE){ // value is null, which conflicts with not null constraint
-						Global::errors.push_back($6.pos);
+						Global::newError($6.pos, "Default value for non-null field cannot be null");
 						YYABORT;
 					}
 					if($6.val.type == DataType::INT && $2.val.type == DataType::BIGINT){
@@ -378,7 +393,7 @@ field		:	IDENTIFIER type
 						// varchar and char are solved previously
 					}
 					else{ // wrong
-						Global::errors.push_back($6.pos);
+						Global::newError($6.pos, "Default value and field type are incompatible");
 						YYABORT;
 					}
 					$$.field.hasDefault = true;
@@ -428,7 +443,7 @@ type		:	KW_INT
 					int intVal = 0;
 					uchar code = Field::strToInt($3.val.str, intVal);
 					if(code != 0 || intVal < 0 || intVal > 255){
-						Global::errors.push_back($3.pos);
+						Global::newError($3.pos, "Length for type CHAR should be between 0 and 255");
 						YYABORT;
 					}
 					else
@@ -441,7 +456,7 @@ type		:	KW_INT
 					int intVal = 0;
 					uchar code = Field::strToInt($3.val.str, intVal);
 					if(code != 0 || intVal < 0 || intVal > 65535){
-						Global::errors.push_back($3.pos);
+						Global::newError($3.pos, "Length for type VARCHAR should be between 0 and 65535");
 						YYABORT;
 					}
 					else
@@ -454,11 +469,11 @@ type		:	KW_INT
 					int intVal = 0, intVal0 = 0;
 					uchar code = Field::strToInt($3.val.str, intVal), code0 = Field::strToInt($5.val.str, intVal0);
 					if(code != 0 || intVal < 1 || intVal > 38){
-						Global::errors.push_back($3.pos);
+						Global::newError($3.pos, "NUMERIC precision should be between 1 and 38");
 						YYABORT;
 					}
 					else if(code0 != 0 || intVal0 < 0 || intVal0 > intVal){
-						Global::errors.push_back($5.pos);
+						Global::newError($5.pos, "NUMERIC scale should be between 0 and NUMERIC precision");
 						YYABORT;
 					}
 					*(uint*)$$.val.bytes = (intVal << 8) + intVal0; // p, s are stored in val
@@ -505,7 +520,7 @@ value		:	INT_LIT
 					else{
 						code = Field::strToLL($1.val.str, llVal);
 						if(code != 0){
-							Global::errors.push_back($1.pos);
+							Global::newError($1.pos, "Value cannot be converted to INT");
 							YYABORT;
 						}
 						else{
@@ -521,7 +536,7 @@ value		:	INT_LIT
 					float floatVal = 0;
 					uchar code = Field::strToFloat($1.val.str, floatVal);
 					if(code != 0){
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, "Value cannot be converted to FLOAT");
 						YYABORT;
 					}
 					else
@@ -553,7 +568,7 @@ value		:	INT_LIT
 					if(ok)
 						DataType::dateToBin(year, month, day, $$.val.bytes);
 					else{
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, "Wrong format for DATE type");
 						YYABORT;
 					}
 				}
@@ -565,7 +580,7 @@ value		:	INT_LIT
 					else if($1.val.str.length() <= 65535)
 						$$.val.type = DataType::VARCHAR;
 					else{
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, "String is too long, it should be no longer than 65535 bytes");
 						YYABORT;
 					}
 				}
@@ -586,7 +601,7 @@ value		:	INT_LIT
 						*(ll*)$2.val.bytes = -*(ll*)$2.val.bytes;
 					}
 					else{
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, "Can only apply '-' to INT, BIGINT and FLOAT type");
 						YYABORT;
 					}
 				}
@@ -635,7 +650,7 @@ col			:	IDENTIFIER
 				{
 					printf("simple col\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					$$.column.colName = $1.val.str;
@@ -644,12 +659,12 @@ col			:	IDENTIFIER
 				{
 					printf("compl col\n");
 					if($1.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::errors.push_back($1.pos);
+						Global::newError($1.pos, Global::format("Table name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					$$.column.tableName = $1.val.str;
 					if($3.val.str.length() > MAX_ATTRI_NAME_LEN){
-						Global::errors.push_back($3.pos);
+						Global::newError($3.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
 					}
 					$$.column.colName = $3.val.str;

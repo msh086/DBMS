@@ -171,15 +171,13 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 
 <STRING>{ESC}	{
 					Global::buffer.push_back(yytext[0]); // 加到缓冲区
-					Global::pos++;
+					Global::pos += 2;
 				}
 
-<STRING>{BAD_ESC}
-				{
-					Global::buffer.push_back(yytext[0]);
-					Global::error.push_back(Global::pos);
-					Global::pos++;
-				}
+<STRING>{BAD_ESC}	{
+						Global::newError(Global::pos, "Bas escape character");
+						Global::pos += 2;
+					}
 
 <STRING>.		{							
 					Global::buffer.push_back(yytext[0]);
@@ -188,7 +186,7 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 
 
 .				{							//.表示除\n以外的其它字符，注意这个规则要放在最后，因为一旦匹配了.就不会匹配后面的规则了(以其它状态<>开头的规则除外)
-					Global::errors.push_back(Global::pos); // undefined
+					Global::newError(Global::pos, "Unknown keyword or illegal character"); // undefined
 					Global::pos++;
 				}
 
