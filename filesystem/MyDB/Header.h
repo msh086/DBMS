@@ -51,6 +51,12 @@ class Header : public BaseHeader{
         // b+树的RID
         uint bpTreePage[MAX_INDEX_NUM] = {0};
 
+        Header(){
+            // set all fkMasters and fkSlaves to 31, which means invalid table id(none)
+            memset(fkMaster, 31, MAX_REF_SLAVE_TIME);
+            memset(fkSlave, 31, MAX_FK_MASTER_TIME);
+        }
+
         /* header的长度 */
         const static int lenth = sizeof(uint) * 8 + // 8 * uint
             sizeof(ushort) * MAX_COL_NUM + // attrLenth

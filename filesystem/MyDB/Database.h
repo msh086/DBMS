@@ -6,6 +6,7 @@
 #include "Header.h"
 #include "../RM/SimpleUtils.h"
 #include "Scanner.h"
+#include <vector>
 
 class Database{
     char name[MAX_DB_NAME_LEN] = "";
@@ -14,32 +15,41 @@ class Database{
     static BufPageManager* bpm;
     static FileManager* fm;
 
-    static Table* activeTables[MAX_TB_NUM];
-    static int activeTableNum;
+    // static Table* activeTables[MAX_TB_NUM];
+    static std::vector<Table*> activeTables;
+    // static int activeTableNum;
 
     // Private helper methods added by msh
     int getActiveTableIndex(const char* tablename){
-        for(int i = 0; i < activeTableNum; i++)
-            if(!strncmp(activeTables[i]->tablename, tablename, MAX_TABLE_NAME_LEN))
-                return i;
+        int ans = 0;
+        for(auto it = activeTables.begin(); it != activeTables.end(); it++, ans++)
+            if(strncmp((*it)->tablename, tablename, MAX_TABLE_NAME_LEN) == 0)
+                return ans;
         return -1;
     }
 
-    void removeTableAt(int index){
-        for(int i = index + 1; i < activeTableNum; i++)
-            activeTables[i - 1] = activeTables[i];
-        activeTableNum--;
+    void closeAndRemoveTableAt(int index){
+        activeTables[index]->WriteBack();
+        int closeret = fm->closeFile(activeTables[index]->fid);
+        delete activeTables[index]; // free memory
+        activeTables.erase(activeTables.begin() + index);
+        if(closeret != 0)
+            printf("In Database::CloseTable, cannot close file\n");
     }
+
+    // void removeTableAt(int index){
+    //     activeTables.erase(activeTables.begin() + index);
+    // }
 
     void resetBufInTable(int index){
         activeTables[index]->tmpBuf = nullptr;
         activeTables[index]->headerBuf = nullptr;
     }
 
-    void resetAllBuf(){
-        for(int i = 0; i < tableNum; i++)
-            resetBufInTable(i);
-    }
+    // void resetAllBuf(){
+    //     for(int i = 0; i < tableNum; i++)
+    //         resetBufInTable(i);
+    // }
 
     // 判断表名是否为预留表名
     bool tablenameReserved(const char* tableName){
@@ -65,7 +75,7 @@ class Database{
     char filePathBuf[MAX_DB_NAME_LEN + MAX_TABLE_NAME_LEN + 3 + 4 + 1] = ""; // 3 = ./***/***, 4 = ***-TMP, 1 = \0
 
     const char* getPath(const char* tableName){
-        sprintf(filePathBuf, "./%s/%s", name, tableName);
+        sprintf(filePathBuf, "%s/%s", name, tableName);
         return filePathBuf;
     }
 
@@ -85,8 +95,8 @@ class Database{
             memcpy(name, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
             int fid_info, fid_idx, fid_varchar;
             bool openret_info = fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_info),
-                openret_idx = fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_idx),
-                openret_varchar = fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_varchar);
+                openret_idx = fm->openFile(getPath(IDX_RESERVED_TABLE_NAME), fid_idx),
+                openret_varchar = fm->openFile(getPath(VARCHAR_RESERVED_TABLE_NAME), fid_varchar);
             if(!openret_info){
                 printf("Initializing db info\n");
                 // create info
@@ -240,25 +250,17 @@ class Database{
                 return nullptr;
             }
             Table* ans = new Table(fid, tablename, this);
-            activeTables[activeTableNum++] = ans;
+            activeTables.push_back(ans);
             return ans;
         }
 
         /**
-         * This will remove a table from activeTables
-         * WARNING: this will clear the bpm
+         * This will remove a table from activeTables, writing its buffer back to disk
         */
         void CloseTable(const char* tablename){
             int index = getActiveTableIndex(tablename);
-            if(index >= 0){
-                bpm->close();
-                resetAllBuf();
-                int closeret = fm->closeFile(activeTables[index]->fid);
-                delete activeTables[index]; // free memory
-                removeTableAt(index);
-                if(closeret != 0)
-                    printf("In Database::CloseTable, cannot close file\n");
-            }
+            if(index >= 0)
+                closeAndRemoveTableAt(index);
             else
                 printf("No table named %.*s\n", MAX_TABLE_NAME_LEN, tablename);
         }
@@ -364,7 +366,14 @@ class Database{
             delete varchar;
             delete rec;
             delete rid;
-            // TODO write back all tables
+            for(auto it = activeTables.begin(); it != activeTables.end(); it++){
+                (*it)->WriteBack();
+                int closeRet = fm->closeFile((*it)->fid);
+                delete *it;
+                if(closeRet != 0)
+                    printf("In Database::Close, error when closing table\n");
+            }
+            activeTables.clear();
         }
 
         const char* GetName(){
@@ -373,6 +382,5 @@ class Database{
 };
 BufPageManager* Database::bpm = BufPageManager::Instance();
 FileManager* Database::fm = FileManager::Instance();
-Table* Database::activeTables[MAX_TB_NUM] = {0};
-int Database::activeTableNum = 0;
+std::vector<Table*> Database::activeTables;
 #endif

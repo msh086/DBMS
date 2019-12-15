@@ -19,11 +19,15 @@ class DBMS{
         RID* rid = nullptr;
 
         // 判断数据库是否已经存在
+        // databaseName无需padding, padding由本函数完成
         bool databaseExists(const char* databaseName){
             uchar type = DataType::CHAR;
             ushort length = MAX_DB_NAME_LEN;
             uchar cmp = Comparator::Eq;
-            scanner->SetDemand((const uchar*)databaseName, &type, &length, 0, 1, &cmp);
+            // pad the databaseName to full length, so that comparison can take place correctly
+            uchar buf[MAX_DB_NAME_LEN] = "";
+            memcpy(buf, databaseName, strlen(databaseName));
+            scanner->SetDemand(buf, &type, &length, 0, 1, &cmp);
             if(scanner->NextRecord(rec)){
                 scanner->Reset();
                 return true;
@@ -108,12 +112,12 @@ class DBMS{
          * 非法名字长度（0或者>MAX_DB_NAME_LEN)由frontend检查
         */
         bool CreateDatabase(const char* databaseName){
-            char buf[MAX_DB_NAME_LEN] = "";
-            memcpy(buf, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
             if(databaseExists(databaseName))
                 return false;
+            uchar buf[MAX_DB_NAME_LEN] = {0};
+            memcpy(buf, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
             createDir(databaseName);
-            tb->InsertRecord((const uchar*)databaseName, rid);
+            tb->InsertRecord(buf, rid);
             return true;
         }
 
@@ -161,6 +165,8 @@ class DBMS{
          * 退出DBMS
         */
         void Close(){
+            if(currentDB)
+                closeCurrentDatabase();
             if(tb){
                 tb->WriteBack();
                 delete tb;
