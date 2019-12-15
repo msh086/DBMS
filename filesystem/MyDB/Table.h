@@ -475,6 +475,4 @@ class Table{
         friend class DBMS;
         friend class Database;    
 };
-FileManager* Table::fm = FileManager::Instance();
-BufPageManager* Table::bpm = BufPageManager::Instance();
 #endif

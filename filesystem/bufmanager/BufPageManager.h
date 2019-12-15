@@ -196,5 +196,4 @@ public:
 		return instance;
 	}
 };
-BufPageManager* BufPageManager::instance = nullptr;
 #endif

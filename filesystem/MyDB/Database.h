@@ -387,7 +387,4 @@ class Database{
             return name;
         }
 };
-BufPageManager* Database::bpm = BufPageManager::Instance();
-FileManager* Database::fm = FileManager::Instance();
-std::vector<Table*> Database::activeTables;
 #endif

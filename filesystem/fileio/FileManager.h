@@ -7,6 +7,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+
+#include "../utils/pagedef.h"
+#include "../utils/MyBitMap.h"
 //#include "../MyLinkList.h"
 using namespace std;
 class FileManager {
@@ -141,5 +144,4 @@ public:
 		return instance;
 	}
 };
-FileManager* FileManager::instance = nullptr;
 #endif

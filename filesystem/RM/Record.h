@@ -1,6 +1,7 @@
 #ifndef RECORD_H_INCLUDED
 #define RECORD_H_INCLUDED
 #include "RID.h"
+#include "../utils/pagedef.h"
 class FileHandler;
 class Table;
 class Record

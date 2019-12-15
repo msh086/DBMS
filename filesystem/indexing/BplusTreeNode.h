@@ -138,5 +138,4 @@ class BplusTreeNode{
         friend class BplusTree;
 };
 
-BufPageManager* BplusTreeNode::bpm = BufPageManager::Instance();
 #endif // BPLUSTREENODE_H

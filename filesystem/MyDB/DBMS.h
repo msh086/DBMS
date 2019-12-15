@@ -184,7 +184,4 @@ class DBMS{
                 delete rid;
         }
 };
-DBMS* DBMS::instance = nullptr;
-FileManager* DBMS::fm = FileManager::Instance();
-BufPageManager* DBMS::bpm = BufPageManager::Instance();
 #endif

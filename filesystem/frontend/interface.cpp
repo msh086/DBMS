@@ -28,7 +28,7 @@ int main(){
         // parsing errors
         if(!Global::errors.empty()){
             for(auto it = Global::errors.begin(); it != Global::errors.end(); it++)
-                printf("syntax error at %d: %s\n", it->pos, it->msg);
+                printf("syntax error at %d: %s\n", it->pos, it->msg.data());
             Global::errors.clear();
         }
         // printf("parse result:%d, now at %ld\n\n", res, ftell(tmp));
