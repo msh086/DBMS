@@ -25,6 +25,12 @@ int main(){
         fseek(tmp, prevPos, SEEK_SET);
         // printf("before parsing, now at %ld\n", ftell(tmp));
 	    int res = yyparse();						//使yacc开始读取输入和解析，它会调用lex的yylex()读取记号
+        // parsing errors
+        if(!Global::errors.empty()){
+            for(auto it = Global::errors.begin(); it != Global::errors.end(); it++)
+                printf("syntax error at %d\n", *it);
+            Global::errors.clear();
+        }
         // printf("parse result:%d, now at %ld\n\n", res, ftell(tmp));
         fseek(tmp, 0, SEEK_END);
         prevPos = ftell(tmp);

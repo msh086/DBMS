@@ -210,73 +210,58 @@ field		:	IDENTIFIER type
 					}
 					if($4.val.type == DataType::INT && $2.val.type == DataType::BIGINT){
 						*(ll*)$$.val.bytes = *(int*)$4.val.bytes;
-						$$.field.defaultValue = new uchar[8];
-						memcpy($$.field.defaultValue, $$.val.bytes, 8);
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::INT && $2.val.type == DataType::FLOAT){
 						*(float*)$$.val.bytes = *(int*)$4.val.bytes;
-						$$.field.defaultValue = new uchar[4];
-						memcpy($$.field.defaultValue, $$.val.bytes, 4);
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::FLOAT && $2.val.type == DataType::NUMERIC){
 						uint pns = *(uint*)$2.val.bytes;
 						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
 						DataType::floatToBin(*(float*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.find('.'), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = new uchar[byteNum];
-						memcpy($$.val.bytes, $4.val.bytes, byteNum);
-						memcpy($$.field.defaultValue, $$.val.bytes, byteNum);
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::INT && $2.val.type == DataType::NUMERIC){
 						uint pns = *(uint*)$2.val.bytes;
 						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
 						DataType::floatToBin(*(int*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = new uchar[byteNum];
-						memcpy($$.val.bytes, $4.val.bytes, byteNum);
-						memcpy($$.field.defaultValue, $$.val.bytes, byteNum);
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::BIGINT && $2.val.type == DataType::NUMERIC){
 						uint pns = *(uint*)$2.val.bytes;
 						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
 						DataType::floatToBin(*(ll*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = new uchar[byteNum];
-						memcpy($$.val.bytes, $4.val.bytes, byteNum);
-						memcpy($$.field.defaultValue, $$.val.bytes, byteNum);
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::CHAR && $2.val.type == DataType::VARCHAR){
 						$$.val.str = $4.val.str;
-						$$.field.defaultValue = new uchar[$$.val.str.length()];
-						memcpy($$.field.defaultValue, $$.val.str.data(), $$.val.str.length());
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::CHAR && $2.val.type == DataType::CHAR && $4.val.str.length() <= *(int*)$2.val.bytes){
 						$$.val.str = $4.val.str;
-						$$.field.defaultValue = new uchar[$$.val.str.length()];
-						memcpy($$.field.defaultValue, $$.val.str.data(), $$.val.str.length());
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == DataType::VARCHAR && $2.val.type == DataType::VARCHAR && $4.val.str.length() <= *(int*)$2.val.bytes){
 						$$.val.str = $4.val.str;
-						$$.field.defaultValue = new uchar[$$.val.str.length()];
-						memcpy($$.field.defaultValue, $$.val.str.data(), $$.val.str.length());
+						$$.field.defaultValue = &$$.val;
 					}
 					else if($4.val.type == $2.val.type){
 						if($2.val.type == DataType::INT){
 							*(int*)$$.val.bytes = *(int*)$4.val.bytes;
-							$$.field.defaultValue = new uchar[4];
-							memcpy($$.field.defaultValue, $$.val.bytes, 4);
+							$$.field.defaultValue = &$$.val;
 						}
 						else if($2.val.type == DataType::BIGINT){
 							*(ll*)$$.val.bytes = *(ll*)$4.val.bytes;
-							$$.field.defaultValue = new uchar[8];
-							memcpy($$.field.defaultValue, $$.val.bytes, 8);
+							$$.field.defaultValue = &$$.val;
 						}
 						else if($2.val.type == DataType::FLOAT){
 							*(float*)$$.val.bytes = *(float*)$4.val.bytes;
-							$$.field.defaultValue = new uchar[8];
-							memcpy($$.field.defaultValue, $$.val.bytes, 8);
+							$$.field.defaultValue = &$$.val;
 						}
 						else if($2.val.type == DataType::DATE){
 							memcpy($$.val.bytes, $4.val.bytes, 3);
-							$$.field.defaultValue = new uchar[8];
-							memcpy($$.field.defaultValue, $$.val.bytes, 8);
+							$$.field.defaultValue = &$$.val;
 						}
 						// a value will only be parsed as float, not numeric
 						// varchar and char are solved previously
@@ -493,28 +478,64 @@ value		:	INT_LIT
 whereClause	:	col op expr
 				{
 					printf("if op\n");
+					WhereInstr tmp;
+					tmp.column = $1.column;
+					tmp.isExprCol = $3.isExprCol;
+					tmp.cmp = $2.cmp;
+					if(tmp.isExprCol)
+						tmp.exprCol = $3.column;
+					else
+						tmp.exprVal = $3.val;
+					$$.condList.push_back(tmp);
 				}
 			|	col IS KW_NULL
 				{
 					printf("if null\n");
+					WhereInstr tmp;
+					tmp.column = $1.column;
+					tmp.cmp = Comparator::Eq;		   // equals
+					tmp.exprVal.type = DataType::NONE; // null
+					$$.condList.push_back(tmp);
 				}
 			|	col IS NOT KW_NULL
 				{
 					printf("if not null\n");
+					WhereInstr tmp;
+					tmp.column = $1.column;
+					tmp.cmp = Comparator::NE;		   // not equals
+					tmp.exprVal.type = DataType::NONE; // null
+					$$.condList.push_back(tmp);
 				}
 			|	whereClause AND whereClause
 				{
 					printf("if and\n");
+					$$.condList = $1.condList;
+					$$.condList.insert($$.condList.end(), $3.condList.begin(), $3.condList.end());
 				}
 			;
 
 col			:	IDENTIFIER
 				{
 					printf("simple col\n");
+					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					$$.column.colName = $1.val.str;
 				}
 			|	IDENTIFIER '.' IDENTIFIER
 				{
 					printf("compl col\n");
+					if($1.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::errors.push_back($1.pos);
+						YYABORT;
+					}
+					$$.column.tableName = $1.val.str;
+					if($3.val.str.length() > MAX_ATTRI_NAME_LEN){
+						Global::errors.push_back($3.pos);
+						YYABORT;
+					}
+					$$.column.colName = $3.val.str;
 				}
 			;
 
@@ -553,50 +574,65 @@ op			:	GE
 expr		:	value
 				{
 					printf("value expr\n");
+					$$.isExprCol = false;
+					$$.val = $1.val;
 				}
 			|	col
 				{
 					printf("col expr\n");
+					$$.isExprCol = true;
+					$$.column = $1.column;
 				}
 			;
 
 setClause	:	IDENTIFIER '=' value
 				{
 					printf("set\n");
+					$$.setList.push_back(SetInstr($1.val.str, $3.val));
 				}
 			|	setClause ',' IDENTIFIER '=' value
 				{
 					printf("multiple set\n");
+					$$.setList = $1.setList;
+					$$.setList.push_back(SetInstr($3.val.str, $5.val));
 				}
 			;
 
 selector	:	'*'
 				{
 					printf("select *\n");
+					$$.selectAll = true;
 				}
 			|	colList
 				{
 					printf("select colList\n");
+					$$.colList = $1.colList;
 				}
 			;
 
 colList		:	col
 				{
 					printf("colList base\n");
+					$$.colList.push_back($1.column);
 				}
 			| 	colList ',' col
 				{
 					printf("colList recur\n");
+					$$.colList = $1.colList;
+					$$.colList.push_back($3.column);
 				}
 			;
 
 IdList		:	IDENTIFIER
 				{
 					printf("IdList base\n");
+					$$.IDList.push_back($1.val.str);
 				}
 			|	IdList ',' IDENTIFIER
 				{
 					printf("IdList recur\n");
+					$$.IDList = $1.IDList;
+					$$.IDList.push_back($3.val.str);
 				}
 			;
 

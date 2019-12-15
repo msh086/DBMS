@@ -6,19 +6,30 @@
 #include <stdexcept>
 
 /**
+ * literals, including INT, BIGINT, FLOAT, NUMERIC, NULL, CHAR, VARCHAR, DATE
+ * 字符串类型直接存储在str中
+ * INT, BIGINT, FLOAT, DATE所占空间固定,存贮在bytes的开头
+ * NUMERIC连header byte和数据部分一起存贮在bytes的开头, 至多17B
+ * NULL由type == DataType::NONE来决定
+*/
+struct Val{
+	std::string str;
+	uchar type = DataType::NONE;
+	uchar bytes[17] = {0};
+};
+
+/**
  * create table {tablename}({field}, ...)
  * alter table {tablename} add {field}
  * alter table {tablename} change {columnname} {field}
 */
 struct Field{
-    // NULL由type == DataType::NONE决定
-    // VARCHAR和CHAR存在
 	char name[MAX_ATTRI_NAME_LEN] = "";
     uchar type = DataType::NONE;
 	ushort length = 0;
 	bool nullable = true;
 	bool hasDefault = false;
-	uchar* defaultValue = nullptr;
+	const Val* defaultValue = nullptr;
     const static int INVALID_ARG = 1, OUT_OF_RANGE = 2, OTHER = 3;
     static uchar strToInt(const std::string& str, int& dst){
         

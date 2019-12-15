@@ -26,19 +26,28 @@ yylval是用YYSTYPE宏定义的，只要重定义YYSTYPE宏，就能重新指定
 // enum Keyword{DATABASE, DATABASES, TABLE, TABLES, SHOW, CREATE, DROP, USE, PRIMARY, KEY, NOT, KW_NULL, INSERT, INTO, VALUES, DELETE, FROM, WHERE, UPDATE, SET, 
 // 	SELECT, IS, INT, VARCHAR, CHAR, DEFAULT, CONSTRAINT, CHANGE, ALTER, ADD, RENAME, DESC, INDEX, AND, DATE, FLOAT, FOREIGN, REFERENCES, NUMERIC, DECIMAL};
 
-// literals, including INT, BIGINT, FLOAT, NUMERIC, NULL, CHAR, VARCHAR, DATE
-// 字符串类型直接存储在str中
-// INT, BIGINT, FLOAT, DATE所占空间固定,存贮在bytes的开头
-// NUMERIC连header byte和数据部分一起存贮在bytes的开头, 至多17B
-// NULL由type == DataType::NONE来决定
-struct Val{
-	std::string str;
-	uchar type = DataType::NONE;
-	uchar bytes[17] = {0};
-};
+
 
 struct Col{
+	std::string tableName;
+	std::string colName;
+};
 
+struct SetInstr{
+	std::string colName;
+	Val value;
+	SetInstr(const std::string& colName, const Val& value){
+		this->colName = colName;
+		this->value = value;
+	}
+};
+
+struct WhereInstr{
+	Col column;
+	Col exprCol;
+	Val exprVal;
+	uchar cmp;
+	bool isExprCol = false;
 };
 
 // 这是flex和yacc共用的数据结构,用于:flex向yacc传递数据;yacc产生式右侧向左侧传递数据
@@ -54,6 +63,19 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	Val val;
 	// cmp
 	uchar cmp = Comparator::Any;
+	// column
+	Col column;
+	// select ... from ... where col op {col | expr}, expr := {col | value}
+	bool isExprCol = false;
+	// update ... set ...
+	std::vector<SetInstr> setList;
+	// select col, col ...
+	std::vector<Col> colList;
+	bool selectAll = false; // select *
+	// ID list, could be list of tablenames or columnName
+	std::vector<std::string> IDList;
+	// ... where x op x and x op x and ...
+	std::vector<WhereInstr> condList;
 };
 
 
