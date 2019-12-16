@@ -15,3 +15,6 @@
 
 # choose txt files
 !*.txt
+
+# ignore yacc generated files
+*.tab.*
