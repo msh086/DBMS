@@ -355,8 +355,6 @@ class Database{
         }
 
         Scanner* ShowTables(){
-            uchar cmp = Comparator::Any;
-            // infoScanner->SetDemand(nullptr, nullptr, nullptr, 0, 0, &cmp);
             infoScanner->SetDemand([](const Record& record)->bool{return true;});
             return infoScanner;
         }

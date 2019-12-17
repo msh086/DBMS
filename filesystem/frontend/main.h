@@ -3,6 +3,7 @@
 #define MAIN_HPP
 
 #include <string>
+#include <set>
 #include <stdio.h>
 #include <vector>
 #include "../utils/pagedef.h" // 全局宏定义

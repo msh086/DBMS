@@ -24,7 +24,7 @@ struct Val{
  * alter table {tablename} change {columnname} {field}
 */
 struct Field{
-	char name[MAX_ATTRI_NAME_LEN] = "";
+	std::string name;
     uchar type = DataType::NONE;
 	ushort length = 0;
 	bool nullable = true;

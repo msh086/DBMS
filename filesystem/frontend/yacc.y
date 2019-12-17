@@ -79,7 +79,7 @@ SysStmt		:	SHOW DATABASES
 					Scanner* scanner = Global::dbms->ShowDatabases();
 					Record rec;
 					while(scanner->NextRecord(&rec)){
-						printf("%s\n", rec.GetData());
+						printf("%s.%d\n", rec.GetData(), MAX_DB_NAME_LEN);
 						rec.FreeMemory();
 					}
 					scanner->Reset();
@@ -89,8 +89,8 @@ SysStmt		:	SHOW DATABASES
 DbStmt		:	CREATE DATABASE IDENTIFIER
 				{
 					printf("create db\n");
-					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::newError($3.pos, Global::format("Database name should be no longer than %d", MAX_TABLE_NAME_LEN));
+					if($3.val.str.length() > MAX_DB_NAME_LEN){
+						Global::newError($3.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
 						YYABORT;
 					}
 					bool createRet = Global::dbms->CreateDatabase($3.val.str.data());
@@ -102,20 +102,111 @@ DbStmt		:	CREATE DATABASE IDENTIFIER
 			|	DROP DATABASE IDENTIFIER
 				{
 					printf("drop db\n");
+					if($3.val.str.length() > MAX_DB_NAME_LEN){
+						Global::newError($3.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
+						YYABORT;
+					}
+					bool dropRet = Global::dbms->DropDatabase($3.val.str.data());
+					if(!dropRet){ // no such database
+						Global::newError($3.pos, Global::format("No database named %s", $3.val.str.data()));
+						YYABORT;
+					}
 				}
 			|	USE IDENTIFIER
 				{
 					printf("use db\n");
+					if($2.var.str.length() > MAX_DB_NAME_LEN){
+						Global::newError($2.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
+						YYABORT;
+					}
+					Database* useRet = Global::dbms->UseDatabase($2.val.str.data());
+					if(!useRet){
+						Global::newError($2.pos, Global::format("No database named %s", $2.val.str.data()));
+						YYABORT;
+					}
 				}
 			|	SHOW TABLES
 				{
 					printf("show tb\n");
+					Database* curDB = Global::dbms->CurrentDatabase();
+					if(!curDB){
+						Global::newError($1.pos, "No database in use");
+						YYABORT;
+					}
+					Scanner* scanner = curDB->ShowTables();
+					Record rec;
+					while(scanner->NextRecord(&rec)){
+						printf("%s.%d\n", rec.GetData(), MAX_TABLE_NAME_LEN);
+						rec.FreeMemory();
+					}
+					scanner->Reset();
 				}
 			;
 
 TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 				{
 					printf("create tb\n");
+					if($5.fieldList.length() > MAX_COL_NUM){
+						Global::newError($5.pos, Global::format("Number of columns in a tables should be not more than %d", MAX_COL_NUM));
+						YYABORT;
+					}
+					std::set<std::string> allNames;
+					Header header;
+					int pos = 0;
+					for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++){
+						if(!allNames.insert(*it).second){
+							Global::newError($5.pos, Global::format("Field name %s conflicts with previous field name", it->name.data()));
+							YYABORT;
+						}
+						// update header
+						header->recordLenth += DataType::lengthof(it->type, it->length);
+						if(it->nullable)
+							header.nullMask |= 1 << (31 - pos);
+						if(it->hasDefault)
+							header.defaultMask |= 1 << (31 - pos);
+						header.attrLenth[pos] = it->length;
+						header.attrType[pos] = it->type;
+						memcpy(header.attrName[pos], it->name.data(), it->name.length());
+						pos++;
+					}
+					bool hasPrimary = false;
+					for(auto it = $5.constraintList.begin(); it != $5.constraintList.end(); it++){
+						// multiple primary keys
+						if(hasPrimary && !it->isFK){
+							Global::newError(%5.pos, "Multiple primary key declareation");
+							YYABORT;
+						}
+						// check names
+						if(!it->isFK) // primary key constraint, all IDs need to be declared
+							for(auto id_it = it->IDList.begin(); id_it != it->IDList.end(); id_it++){
+								if(!allNames.count(*id_it)){
+									Global::newError($5.pos, Global::format("Undeclared field name %s in constraint", (*id_it).data()));
+									YYABORT;
+								}
+								// TODO: update primary key info in header
+							}
+						else{ // foreign key constraint(single key)  IDList = {slaveCol, masterTable, masterCol}
+							// check slaveCol name
+							if(!allNames.count(it->IDList[0])){
+								Global::newError($5.pos, Global::format("Undeclared field name %s in constraint", it->IDList[0].data()));
+								YYABORT;
+							}
+							// check masterTable name and masterCol name
+							Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1]);
+							if(!master){ // no such table
+								Global::newError($5.pos, Global::format("No table named %s under database %s", it->IDList[1].data(), Global::dbms->CurrentDatabase()->GetName()));
+								YYABORT;
+							}
+							int masterColIndex = master->IDofCol(it->IDList[2].data());
+							if(masterColIndex == COL_ID_NONE){
+								Global::newError($5.pos, Global::format("No field named %s in table %s", it->IDList[2].data(), it->IDList[1].data()));
+								YYABORT;
+							}
+							// TODO update foreign key info in header
+						}
+					}
+					// TODO: build default record
+					// TODO: create table
 				}
 			|	DROP TABLE IDENTIFIER
 				{
@@ -203,12 +294,19 @@ fieldList	:	fieldList ',' field
 				{
 					printf("fieldList recur\n");
 					$$.fieldList = $1.fieldList;
-					$$.fieldList.push_back($3.field);
+					$$.constraintList = $1.constraintList;
+					if($3.constraintList.empty())
+						$$.fieldList.push_back($3.field);
+					else
+						$$.constraintList.push_back($3.constraintList[0]);
 				}
 			|	field
 				{
 					printf("fieldList base\n");
-					$$.fieldList.push_back($1.field);
+					if($1.constraintList.empty())
+						$$.fieldList.push_back($1.field);
+					else
+						$$.constraintList.push_back($3.constraintList[0]);
 				}
 			;
 
@@ -222,7 +320,7 @@ field		:	IDENTIFIER type
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
 					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 				}
@@ -234,7 +332,7 @@ field		:	IDENTIFIER type
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
 					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 					$$.field.nullable = false;
@@ -247,7 +345,7 @@ field		:	IDENTIFIER type
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
 					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 					// decide subtype
@@ -326,7 +424,7 @@ field		:	IDENTIFIER type
 						YYABORT;
 					}
 					else
-						memcpy($$.field.name, $1.val.str.data(), $1.val.str.length());
+						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
 					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
 					// decide subtype
@@ -607,7 +705,19 @@ value		:	INT_LIT
 				}
 			;
 
-whereClause	:	col op expr
+whereClause :	whereClause AND whereUnit
+				{
+					printf("where recur\n");
+					$$.condList = $1.condList;
+					$$.condList.push_back($3.condList[0]);
+				}
+			|	whereUnit
+				{
+					printf("where base\n");
+					$$.condList.push_back($3.condList[0]);
+				}
+
+whereUnit	:	col op expr
 				{
 					printf("if op\n");
 					WhereInstr tmp;
@@ -637,12 +747,6 @@ whereClause	:	col op expr
 					tmp.cmp = Comparator::NE;		   // not equals
 					tmp.exprVal.type = DataType::NONE; // null
 					$$.condList.push_back(tmp);
-				}
-			|	whereClause AND whereClause
-				{
-					printf("if and\n");
-					$$.condList = $1.condList;
-					$$.condList.insert($$.condList.end(), $3.condList.begin(), $3.condList.end());
 				}
 			;
 

@@ -150,7 +150,33 @@ class DBMS{
                 if(currentDB && identical(databaseName, DBMS_RESERVED_TABLE_NAME, MAX_DB_NAME_LEN)) // 要被删除的数据库已经打开
                     closeCurrentDatabase();
                 tb->DeleteRecord(*rec->GetRid()); // 如果databaseExists返回true，对应记录的RID和数据会被存到rec里
-                // TODO delete file and folder
+                // delete file and folder
+                int db_info_fid;
+                char buf[MAX_DB_NAME_LEN + 1 + 6] = ""; // ? Hard encoding, 6 = strlen(DB_RESERVED_TABLE_NAME)
+                sprintf(buf, "%s/%s", databaseName, DB_RESERVED_TABLE_NAME);
+                bool openRet = fm->openFile(buf, db_info_fid);
+                if(!openRet) // target database has never been used, which means there is only an empty directory
+                    removeDir(databaseName);
+                else{
+                    Table* tb = new Table(db_info_fid, buf, nullptr);
+                    Scanner *tables = tb->GetScanner([](const Record& record)->bool{return true;});
+                    Record tmpRec;
+                    while(tables->NextRecord(&tmpRec)){
+                        snprintf(buf + strlen(databaseName) + 1, MAX_TABLE_NAME_LEN ,"%s", tmpRec.GetData());
+                        remove(buf);
+                        tmpRec.FreeMemory();
+                    }
+                    tb->WriteBack();
+                    delete tb;
+                    // remove DB level reserved tables
+                    sprintf(buf + strlen(databaseName) + 1, "%s", DB_RESERVED_TABLE_NAME);
+                    remove(buf);
+                    sprintf(buf + strlen(databaseName) + 1, "%s", VARCHAR_RESERVED_TABLE_NAME);
+                    remove(buf);
+                    sprintf(buf + strlen(databaseName) + 1, "%s", IDX_RESERVED_TABLE_NAME);
+                    remove(buf);
+                    removeDir(databaseName);
+                }
                 return true;
             }
             else
@@ -164,6 +190,10 @@ class DBMS{
         Scanner* ShowDatabases(){
             scanner->SetDemand([](const Record& rec)->bool{return true;});
             return scanner;
+        }
+
+        Database* CurrentDatabase(){
+            return currentDB;
         }
 
         /**
