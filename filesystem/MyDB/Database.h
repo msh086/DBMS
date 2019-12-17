@@ -240,7 +240,7 @@ class Database{
                 return true;
             }
             return false;
-            //TODO : cascade deletion for foreign keys
+            //TODO : cascade deletion for foreign keys? or in parser?
         }
         /**
          * Open the table of tablename

@@ -53,7 +53,7 @@ class BplusTree{
                 if(header->attrType[i] != DataType::NONE){
                     header->recordLenth += DataType::lengthOf(header->attrType[i], header->attrLenth[i]);
                     if(header->nullMask & (1 << (31 - i)))
-                        header->recordLenth++;
+                        header->recordLenth++; // ! use null word
                     colNum++;
                 }
                 else

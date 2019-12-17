@@ -148,9 +148,9 @@ class DataType{
             }
             const uchar* datal = left, *datar = right;
             if(nullable){
-                if(datal[0] == 1) // left is null
+                if(datal[0] == 1) // left is null // ! use null word
                     return false;
-                if(datar[0] == 1) // right is null
+                if(datar[0] == 1) // right is null // ! use null word
                     return true;
                 datal++; // skip the null byte
                 datar++;
@@ -228,6 +228,8 @@ class DataType{
             }
             case INT: // 4 bytes as it is in cpp
                 return *(int*)(datal) >= *(int*)datar;
+                break;
+            case VARCHAR: // TODO
                 break;
             default:
                 break;
@@ -519,7 +521,7 @@ class DataType{
             for(int i = 0; i < colNum; i++){
                 if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0); // ! use null word
                 left += length;
                 right += length;
             }
@@ -533,7 +535,7 @@ class DataType{
             for(int i = 0; i < colNum; i++){
                 if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp[i]))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
+                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0); // ! use null word
                 left += length;
                 right += length;
             }
@@ -545,7 +547,7 @@ class DataType{
             for(int i = 0; i < colNum; i++){
                     ans += lengthOf(types[i], lengths[i]);
                     if(nullMask & (1 << (31 - i)))
-                        ans++;
+                        ans++; // ! use null word
             }
             return ans;
         }

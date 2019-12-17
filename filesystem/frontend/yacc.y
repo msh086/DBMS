@@ -115,7 +115,7 @@ DbStmt		:	CREATE DATABASE IDENTIFIER
 			|	USE IDENTIFIER
 				{
 					printf("use db\n");
-					if($2.var.str.length() > MAX_DB_NAME_LEN){
+					if($2.val.str.length() > MAX_DB_NAME_LEN){
 						Global::newError($2.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
 						YYABORT;
 					}
@@ -146,7 +146,11 @@ DbStmt		:	CREATE DATABASE IDENTIFIER
 TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 				{
 					printf("create tb\n");
-					if($5.fieldList.length() > MAX_COL_NUM){
+					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::newError($3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+						YYABORT;
+					}
+					if($5.fieldList.size() > MAX_COL_NUM){
 						Global::newError($5.pos, Global::format("Number of columns in a tables should be not more than %d", MAX_COL_NUM));
 						YYABORT;
 					}
@@ -162,16 +166,16 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 					Header header;
 					int pos = 0;
 					for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++){
-						if(!allNames.insert(*it).second){
+						if(!allNames.insert(it->name).second){
 							Global::newError($5.pos, Global::format("Field name %s conflicts with previous field name", it->name.data()));
 							YYABORT;
 						}
 						// update header
-						header->recordLenth += DataType::lengthOf(it->type, it->length);
+						header.recordLenth += DataType::lengthOf(it->type, it->length);
 						if(it->nullable)
 							header.nullMask |= 1 << (31 - pos);
 						if(it->hasDefault)
-							header.defaultMask |= 1 << (31 - pos);
+							header.defaultKeyMask |= 1 << (31 - pos);
 						header.attrLenth[pos] = it->length;
 						header.attrType[pos] = it->type;
 						memcpy(header.attrName[pos], it->name.data(), it->name.length());
@@ -184,7 +188,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 					// lambda function, get the index of a given name
 					auto getNameIndex = [=](const std::string& target)->int{
 						int ans = 0;
-						for(auto it = $5.fieldList.begin(); it != %4.fieldList.end(); it++){
+						for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++){
 							if(it->name == target)
 								return ans;
 							ans++;
@@ -196,7 +200,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 					for(auto it = $5.constraintList.begin(); it != $5.constraintList.end(); it++){
 						// multiple primary keys
 						if(hasPrimary && !it->isFK){
-							Global::newError(%5.pos, "Multiple primary key declaration");
+							Global::newError($5.pos, "Multiple primary key declaration");
 							YYABORT;
 						}
 						// check names
@@ -218,7 +222,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								YYABORT;
 							}
 							// check masterTable name and masterCol name
-							Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1]);
+							Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1].data());
 							if(!master){ // no such table
 								Global::newError($5.pos, Global::format("No table named %s under database %s", it->IDList[1].data(), Global::dbms->CurrentDatabase()->GetName()));
 								YYABORT;
@@ -234,10 +238,11 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							}
 							// update header, this fk constraint is anonymous
 							header.fkMaster[fkIndex] = master->GetTableID();
-							header.masterKeyID = 1 << (31 - masterColIndex);
-							header.slaveKeyID = 1 << (31 - getNameIndex(it->IDList[0]));
+							header.masterKeyID[fkIndex] = 1 << (31 - masterColIndex);
+							header.slaveKeyID[fkIndex] = 1 << (31 - getNameIndex(it->IDList[0].data()));
 							fkIndex++;
 							// TODO: update the master table's fk info ?
+							Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // never forget to close a table after use
 						}
 					}
 					// build default record
@@ -251,20 +256,20 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								dftRec[dftIndex >> 3] |= 128 >> (dftIndex & 7); // set null word
 							}
 							if(it->type == DataType::CHAR){
-								memcpy(dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
+								memcpy(dftRec + dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
 							}
 							else if(it->type == DataType::VARCHAR){
 								if(it->length <= 255)
-									memcpy(dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
+									memcpy(dftRec + dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
 								else{ // long varchar
 									RID varcharRID;
-									Global::dbms->InsertLongVarchar(it->defaultValue->str.data(), it->defaultValue->str.length(), &varcharRID);
+									Global::dbms->CurrentDatabase()->InsertLongVarchar(it->defaultValue->str.data(), it->defaultValue->str.length(), &varcharRID);
 									*(uint*)(dftRec + dftBufPos) = varcharRID.GetPageNum();
 									*(uint*)(dftRec + dftBufPos + 4) = varcharRID.GetSlotNum();
 								}
 							}
 							else{
-								memcpy(dftBufPos, it->defaultValue->bytes, fieldLength);
+								memcpy(dftRec + dftBufPos, it->defaultValue->bytes, fieldLength);
 							}
 						}
 						dftBufPos += fieldLength;
@@ -275,10 +280,36 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 			|	DROP TABLE IDENTIFIER
 				{
 					printf("drop tb\n");
+					if(Global::dbms->CurrentDatabase() == nullptr){
+						Global::newError($1.pos, "No available database");
+						YYABORT;
+					}
+					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::newError($3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+						YYABORT;
+					}
+					if(!Global::dbms->CurrentDatabase()->DeleteTable($3.val.str.data())){
+						Global::newError($3.pos, Global::format("No database named %s", $3.val.str.data()));
+						YYABORT;
+					}
 				}
 			|	DESC IDENTIFIER
 				{
 					printf("desc tb\n");
+					if(Global::dbms->CurrentDatabase() == nullptr){
+						Global::newError($1.pos, "No available database");
+						YYABORT;
+					}
+					if($2.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::newError($2.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+						YYABORT;
+					}
+					Table* table = Global::dbms->CurrentDatabase()->OpenTable($2.val.str.data());
+					if(!table){
+						Global::newError($2.pos, Global::format("No table named %s", $2.val.str.data()));
+						YYABORT;
+					}
+					// TODO: describe table
 				}
 			|	INSERT INTO IDENTIFIER VALUES '(' valueLists ')' // valueLists = '(' valueList ')' (',' '(' valueList ')')*, 用于一次插入多条记录
 				{
@@ -370,7 +401,7 @@ fieldList	:	fieldList ',' field
 					if($1.constraintList.empty())
 						$$.fieldList.push_back($1.field);
 					else
-						$$.constraintList.push_back($3.constraintList[0]);
+						$$.constraintList.push_back($1.constraintList[0]);
 				}
 			;
 
@@ -778,7 +809,7 @@ whereClause :	whereClause AND whereUnit
 			|	whereUnit
 				{
 					printf("where base\n");
-					$$.condList.push_back($3.condList[0]);
+					$$.condList.push_back($1.condList[0]);
 				}
 
 whereUnit	:	col op expr
@@ -827,7 +858,7 @@ col			:	IDENTIFIER
 				{
 					printf("compl col\n");
 					if($1.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::newError($1.pos, Global::format("Table name should be no longer than %d", MAX_ATTRI_NAME_LEN));
+						Global::newError($1.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
 						YYABORT;
 					}
 					$$.column.tableName = $1.val.str;

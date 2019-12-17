@@ -1,11 +1,11 @@
 BUILD_DIR = ./build/
 
-run : main
-	cd ../../; ./f*/fr*/main
-
 main : $(BUILD_DIR)yacc.tab.o $(BUILD_DIR)lex.yy.o $(BUILD_DIR)Global.o $(BUILD_DIR)interface.o $(BUILD_DIR)MyBitMap.o $(BUILD_DIR)FileManager.o $(BUILD_DIR)SimpleUtils.o \
 	$(BUILD_DIR)BufPageManager.o $(BUILD_DIR)BplusTree.o $(BUILD_DIR)BplusTreeNode.o $(BUILD_DIR)Database.o $(BUILD_DIR)Scanner.o $(BUILD_DIR)Table.o $(BUILD_DIR)DBMS.o
 	g++ $^ -o main
+
+run : main
+	cd ../../run; ../f*/fr*/main
 $(BUILD_DIR)yacc.tab.o : yacc.tab.c
 	g++ -c yacc.tab.c -o $@
 $(BUILD_DIR)lex.yy.o : lex.yy.c
