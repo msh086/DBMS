@@ -150,6 +150,14 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						Global::newError($5.pos, Global::format("Number of columns in a tables should be not more than %d", MAX_COL_NUM));
 						YYABORT;
 					}
+					if(Global::dbms->CurrentDatabase() == nullptr){
+						Global::newError($1.pos, "No available database");
+						YYABORT;
+					}
+					if(Global::dbms->CurrentDatabase()->TableExists($3.val.str.data())){
+						Global::newError($3.pos, Global::format("Another table named %s already exists", $3.val.str.data()));
+						YYABORT;
+					}
 					std::set<std::string> allNames;
 					Header header;
 					int pos = 0;
@@ -159,7 +167,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							YYABORT;
 						}
 						// update header
-						header->recordLenth += DataType::lengthof(it->type, it->length);
+						header->recordLenth += DataType::lengthOf(it->type, it->length);
 						if(it->nullable)
 							header.nullMask |= 1 << (31 - pos);
 						if(it->hasDefault)
@@ -169,22 +177,40 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						memcpy(header.attrName[pos], it->name.data(), it->name.length());
 						pos++;
 					}
+					header.recordLenth += 4; // TODO: the null word?
+					header.slotNum = PAGE_SIZE / header.recordLenth;
+					// handle constraints
 					bool hasPrimary = false;
+					// lambda function, get the index of a given name
+					auto getNameIndex = [=](const std::string& target)->int{
+						int ans = 0;
+						for(auto it = $5.fieldList.begin(); it != %4.fieldList.end(); it++){
+							if(it->name == target)
+								return ans;
+							ans++;
+						}
+						return -1;
+					};
+					// number of foreign key constraints
+					int fkIndex = 0;
 					for(auto it = $5.constraintList.begin(); it != $5.constraintList.end(); it++){
 						// multiple primary keys
 						if(hasPrimary && !it->isFK){
-							Global::newError(%5.pos, "Multiple primary key declareation");
+							Global::newError(%5.pos, "Multiple primary key declaration");
 							YYABORT;
 						}
 						// check names
-						if(!it->isFK) // primary key constraint, all IDs need to be declared
+						if(!it->isFK) { // primary key constraint, all IDs need to be declared
+							hasPrimary = true;
 							for(auto id_it = it->IDList.begin(); id_it != it->IDList.end(); id_it++){
 								if(!allNames.count(*id_it)){
 									Global::newError($5.pos, Global::format("Undeclared field name %s in constraint", (*id_it).data()));
 									YYABORT;
 								}
-								// TODO: update primary key info in header
+								// update header
+								header.primaryKeyMask |= 1 << (31 - getNameIndex(*id_it));
 							}
+						}
 						else{ // foreign key constraint(single key)  IDList = {slaveCol, masterTable, masterCol}
 							// check slaveCol name
 							if(!allNames.count(it->IDList[0])){
@@ -202,11 +228,49 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								Global::newError($5.pos, Global::format("No field named %s in table %s", it->IDList[2].data(), it->IDList[1].data()));
 								YYABORT;
 							}
-							// TODO update foreign key info in header
+							if(fkIndex == MAX_REF_SLAVE_TIME){
+								Global::newError($5.pos, Global::format("A table can reference other tables in foreign key constraint no more than %d times", MAX_REF_SLAVE_TIME));
+								YYABORT;
+							}
+							// update header, this fk constraint is anonymous
+							header.fkMaster[fkIndex] = master->GetTableID();
+							header.masterKeyID = 1 << (31 - masterColIndex);
+							header.slaveKeyID = 1 << (31 - getNameIndex(it->IDList[0]));
+							fkIndex++;
+							// TODO: update the master table's fk info ?
 						}
 					}
-					// TODO: build default record
-					// TODO: create table
+					// build default record
+					uchar dftRec[header.recordLenth] = {0};
+					int dftBufPos = 4; // skip the null word
+					int dftIndex = 0;
+					for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++, dftIndex++){
+						int fieldLength = DataType::lengthOf(it->type, it->length);
+						if(it->hasDefault){
+							if(it->defaultValue->type == DataType::NONE){ // special case, default value is null
+								dftRec[dftIndex >> 3] |= 128 >> (dftIndex & 7); // set null word
+							}
+							if(it->type == DataType::CHAR){
+								memcpy(dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
+							}
+							else if(it->type == DataType::VARCHAR){
+								if(it->length <= 255)
+									memcpy(dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
+								else{ // long varchar
+									RID varcharRID;
+									Global::dbms->InsertLongVarchar(it->defaultValue->str.data(), it->defaultValue->str.length(), &varcharRID);
+									*(uint*)(dftRec + dftBufPos) = varcharRID.GetPageNum();
+									*(uint*)(dftRec + dftBufPos + 4) = varcharRID.GetSlotNum();
+								}
+							}
+							else{
+								memcpy(dftBufPos, it->defaultValue->bytes, fieldLength);
+							}
+						}
+						dftBufPos += fieldLength;
+					}
+					if(!Global::dbms->CurrentDatabase()->CreateTable($3.val.str.data(), &header, dftRec))
+						printf("Unknown error in creating table\n");
 				}
 			|	DROP TABLE IDENTIFIER
 				{

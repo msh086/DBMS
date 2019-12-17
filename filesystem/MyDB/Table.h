@@ -19,6 +19,9 @@ class Table{
     uchar* tmpBuf = nullptr;
     Database* db = nullptr;
 
+    // table ID, sometimes useful...
+    uchar tableID;
+
     static FileManager* fm;
     static BufPageManager* bpm;
 
@@ -166,7 +169,8 @@ class Table{
         }
 
         // load a table instance from an OPENDED table file
-        Table(int fid, const char* tableName, Database* db){
+        // tableID: 0-30, 表对应的标识号. 31(TB_ID_NONE)代表不是任何表
+        Table(int fid, const char* tableName, Database* db, uchar tableID = TB_ID_NONE){
             header = new Header();
             this->fid = fid;
             headerBuf = (uchar*)bpm->getPage(fid, 0, headerIdx);
@@ -175,6 +179,7 @@ class Table{
             strncpy(this->tablename, tableName, strnlen(tableName, MAX_TABLE_NAME_LEN));
             CalcColFkIdxCount();
             this->db = db;
+            this->tableID = tableID;
         }
 
         ~Table(){
@@ -257,6 +262,7 @@ class Table{
 
         /**
          * Calc the number of columns, fk constraints and indexs
+         * Based on attrType / fkMaster / fkSlave / indexID
         */
         void CalcColFkIdxCount(){
             colCount = 0;
@@ -467,6 +473,10 @@ class Table{
 
         int FileID(){
             return fid;
+        }
+
+        uchar GetTableID(){
+            return tableID;
         }
 
         Scanner* GetScanner(bool (*demand)(const Record& record));

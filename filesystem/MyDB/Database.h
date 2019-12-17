@@ -10,7 +10,6 @@
 
 class Database{
     char name[MAX_DB_NAME_LEN] = "";
-    int tableNum = 0;
 
     static BufPageManager* bpm;
     static FileManager* fm;
@@ -56,21 +55,6 @@ class Database{
         return identical(tableName, DB_RESERVED_TABLE_NAME, MAX_TABLE_NAME_LEN) ||
             identical(tableName, IDX_RESERVED_TABLE_NAME, MAX_TABLE_NAME_LEN) ||
             identical(tableName, VARCHAR_RESERVED_TABLE_NAME, MAX_TABLE_NAME_LEN);
-    }
-
-    // 判断用户表是否存在
-    bool tableExists(const char* tableName){
-        uchar type = DataType::CHAR;
-        ushort length = MAX_TABLE_NAME_LEN;
-        uchar cmp = Comparator::Eq;
-        rec->FreeMemory();
-        infoScanner->SetDemand((const uchar*)tableName, &type, &length, 0, 1, &cmp);
-        if(infoScanner->NextRecord(rec)){
-            infoScanner->Reset();
-            return true;
-        }
-        infoScanner->Reset();
-        return false;
     }
 
     char filePathBuf[MAX_DB_NAME_LEN + MAX_TABLE_NAME_LEN + 3 + 4 + 1] = ""; // 3 = ./***/***, 4 = ***-TMP, 1 = \0
@@ -184,8 +168,23 @@ class Database{
             varchar = new Table(fid_varchar, VARCHAR_RESERVED_TABLE_NAME, this);
         }
 
+        // 判断用户表是否存在
+        bool TableExists(const char* tableName){
+            uchar type = DataType::CHAR;
+            ushort length = MAX_TABLE_NAME_LEN;
+            uchar cmp = Comparator::Eq;
+            rec->FreeMemory();
+            infoScanner->SetDemand((const uchar*)tableName, &type, &length, 0, 1, &cmp);
+            if(infoScanner->NextRecord(rec)){
+                infoScanner->Reset();
+                return true;
+            }
+            infoScanner->Reset();
+            return false;
+        }
+
         bool CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
-            if(tableExists(tablename))
+            if(TableExists(tablename))
                 return false;
             //TODO : check on header validity?
             bool createret = fm->createFile(getPath(tablename));
@@ -224,6 +223,9 @@ class Database{
             if(closeret != 0){
                 printf("In Databse::CreateTable, cannot close file\n");
             }
+            uchar data[MAX_TABLE_NAME_LEN] = {0};
+            memcpy(data, tablename, strlen(tablename));
+            info->InsertRecord(data, rid);
             return true;
         }
 
@@ -231,8 +233,10 @@ class Database{
          * Do not delete an opened file!
         */
         bool DeleteTable(const char* tablename){
-            if(tableExists(tablename)){
+            // TODO: protection for reserved tables? or in parser?
+            if(TableExists(tablename)){
                 remove(getPath(tablename));
+                info->DeleteRecord(*rec->GetRid());
                 return true;
             }
             return false;
@@ -244,13 +248,15 @@ class Database{
          * NOTE: DO NOT free the memory of Table by yourself, this is done by Database
         */
         Table* OpenTable(const char* tablename){
+            if(!TableExists(tablename))
+                return nullptr;
             int fid;
             bool openret = fm->openFile(getPath(tablename), fid);
             if(!openret){
                 printf("In Database::OpenTable, cannot open file\n");
                 return nullptr;
             }
-            Table* ans = new Table(fid, tablename, this);
+            Table* ans = new Table(fid, tablename, this, rec->GetRid()->GetSlotNum() - 1); // ? This way of acquiring table ID may be ok if only page 1 is used in info
             activeTables.push_back(ans);
             return ans;
         }
@@ -294,7 +300,7 @@ class Database{
             ushort length = MAX_TABLE_NAME_LEN;
             uchar cmp = Comparator::Eq;
             infoScanner->SetDemand((const uchar*)oldName, &type, &length, 0, 1, &cmp);
-            if(tableExists(oldName)){ // after calling tableExist(name), the found record is stored in 'rec'
+            if(TableExists(oldName)){ // after calling tableExist(name), the found record is stored in 'rec'
                 memset(rec->GetData(), 0, MAX_TABLE_NAME_LEN);
                 memcpy(rec->GetData(), newName, strlen(newName));
                 info->UpdateRecord(*rec->GetRid(), rec->GetData(), 0, 0, MAX_TABLE_NAME_LEN);
@@ -304,7 +310,10 @@ class Database{
                 return false;
         }
 
-        void InsertLongVarchar(const char* str, uint length){
+        /**
+         * 向varchar表内存储一个字符串,其起始地址保存到entry中
+        */
+        RID* InsertLongVarchar(const char* str, uint length, RID* entry){
             uchar buf[VARCHAR_RECORD_LEN] = {0};
             RID prev = RID(), cur = RID();
             bool hasPrev = false;
@@ -319,6 +328,10 @@ class Database{
                     *(uint*)buf = cur.GetPageNum();
                     *(uint*)(buf + 4) = cur.GetSlotNum();
                     varchar->UpdateRecord(prev, buf, 0, 0, 8);
+                }
+                else{
+                    entry->PageNum = cur.PageNum;
+                    entry->SlotNum = cur.SlotNum;
                 }
                 // update loop
                 hasPrev = true;
@@ -338,7 +351,12 @@ class Database{
                     *(uint*)(buf + 4) = cur.GetSlotNum();
                     varchar->UpdateRecord(prev, buf, 0, 0, 8);
                 }
+                else{
+                    entry->PageNum = cur.PageNum;
+                    entry->SlotNum = cur.SlotNum;
+                }
             }
+            return entry;
         }
 
         void RemoveLongVarchar(const RID& rid){

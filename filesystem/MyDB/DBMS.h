@@ -100,8 +100,7 @@ class DBMS{
                 }
                 printf("DBMS init success\n");
             }
-            Table* ans = new Table(fid, DBMS_RESERVED_TABLE_NAME, nullptr);
-            tb = ans;
+            tb = new Table(fid, DBMS_RESERVED_TABLE_NAME, nullptr);
             scanner = tb->GetScanner(nullptr);
             rec = new Record();
             rid = new RID();
@@ -158,16 +157,16 @@ class DBMS{
                 if(!openRet) // target database has never been used, which means there is only an empty directory
                     removeDir(databaseName);
                 else{
-                    Table* tb = new Table(db_info_fid, buf, nullptr);
-                    Scanner *tables = tb->GetScanner([](const Record& record)->bool{return true;});
+                    Table* tmpTable = new Table(db_info_fid, buf, nullptr);
+                    Scanner *tables = tmpTable->GetScanner([](const Record& record)->bool{return true;});
                     Record tmpRec;
                     while(tables->NextRecord(&tmpRec)){
                         snprintf(buf + strlen(databaseName) + 1, MAX_TABLE_NAME_LEN ,"%s", tmpRec.GetData());
                         remove(buf);
                         tmpRec.FreeMemory();
                     }
-                    tb->WriteBack();
-                    delete tb;
+                    tmpTable->WriteBack();
+                    delete tmpTable;
                     // remove DB level reserved tables
                     sprintf(buf + strlen(databaseName) + 1, "%s", DB_RESERVED_TABLE_NAME);
                     remove(buf);
