@@ -1,6 +1,7 @@
 #ifndef DATATYPE_H
 #define DATATYPE_H
 #include "../utils/pagedef.h"
+#include "../RM/SimpleUtils.h"
 #include "Comparator.h"
 #include <iostream>
 #include <cstring>
@@ -139,150 +140,7 @@ class DataType{
             return reinterpret_cast<const uchar*>(ans);
         }
 #endif
-
-        // when both are null, return false(left < right)
-        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
-            if(type == NONE){
-                std::printf("Error: NONE type is not comparable");
-                return false;
-            }
-            const uchar* datal = left, *datar = right;
-            if(nullable){
-                if(datal[0] == 1) // left is null // ! use null word
-                    return false;
-                if(datar[0] == 1) // right is null // ! use null word
-                    return true;
-                datal++; // skip the null byte
-                datar++;
-            }
-
-            switch (type)
-            {
-            case FLOAT:{ // we don't follow SQL server rules, float is just float. It takes 4 bytes
-                float* floatl = (float*)datal, *floatr = (float*)datar;
-                return *floatl >= *floatr;
-                break;
-            }
-            case BIGINT:{ // signed long long
-                ll* bigintl = (ll*)datal, *bigintr = (ll*)datar;
-                return *bigintl >= *bigintr;
-                break;
-            }
-            case CHAR:{ // 0-255 bytes
-                return strncmp((const char*)datal, (const char*)datar, length);
-                break;
-            }
-            case NUMERIC:{ 
-                // 1B: 1b for sign, 6b for dot position; 16B: 127b for 38 dec digits
-                // numeric(p, s), p = 1, 2,...38, s = 0, 1,...p. p is the max dec digits to store, s is the max dec digits to the right of dot
-                // p = 3k: bytes = ceiling(10k) + 1
-                // p = 3k + 1: bytes = ceiling(10k + 4) + 1
-                // p = 3k + 2: bytes = ceiling(10k + 7) + 1
-                // p, s are stored in length(ushort)
-                bool signl = datal[0] >> 7, signr = datar[0] >> 7;
-                if(signl != signr) // one is positive, the other is negative
-                    return signl ? false : true; // signl == true -> left <= 0
-                uint p = length >> 8, s = length & ((1 << 8) - 1);
-                uchar bufferl[p] = {0};
-                uchar bufferr[p] = {0};
-                binToDigits(datal + 1, bufferl, p);
-                binToDigits(datar + 1, bufferr, p);
-                int dotPosl = datal[0] & 63, dotPosr = datar[0] & 63;
-                bool isNegative = signl;
-                bool result = !isNegative; // comparison result of abs value, the value of this will stay untouched if two numberic are equal
-                // ? when converting float to bin, dotpos is max(leftDotLength, p - s)
-                // ? so when two numeric's dotpos are different, they have different leftDotLength
-                if(dotPosl < dotPosr){
-                    result = true; // note dotpos is the number of digits to the right of the dot
-                }
-                else if(dotPosl > dotPosr){
-                    result = false;
-                }
-                else{ // when two numeric have the same dotpos
-                    for(int i = 0; i < p; i++){
-                        if(bufferl[i] > bufferr[i]){
-                            result = true;
-                            break;
-                        }
-                        else if(bufferl[i] < bufferr[i]){
-                            result = false;
-                            break;
-                        }
-                    }
-                }
-                return isNegative ? !result : result;
-                break;
-            }
-            case DATE:{ // 14 bits of year 1~9999, 4 bits of month 1~12, 5 bits of day 1~31, total 23 bits < 3 Bytes
-                int yearl, monthl, dayl, yearr, monthr, dayr;
-                binToDate(datal, yearl, monthl, dayl);
-                binToDate(datar, yearr, monthr, dayr);
-                if(yearl < yearr)
-                    return false;
-                if(monthl < monthr)
-                    return false;
-                if(dayl < dayr)
-                    return false;
-                return true;
-                break;
-            }
-            case INT: // 4 bytes as it is in cpp
-                return *(int*)(datal) >= *(int*)datar;
-                break;
-            case VARCHAR: // TODO
-                break;
-            default:
-                break;
-            }
-        }
-
-        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
-            const uchar* datal = left, *datar = right;
-            if(nullable){
-                bool nulll = datal[0] == 1, nullr = datar[0] == 1;
-                if(nulll && nullr)
-                    return true;
-                if(nulll || nullr)
-                    return false;
-                datal++; // skip null byte
-                datar++;
-            }
-            switch(type){
-                case NONE:
-                    std::printf("trying to compare type NONE\n");
-                    return false;
-                    break;
-                case FLOAT:
-                    return *(float*)datal == *(float*)datar;
-                    break;
-                case BIGINT:
-                    return *(ll*)datal == *(ll*)datar;
-                    break;
-                case CHAR:
-                    return strncmp((char*)datal, (char*)datar, length) == 0;
-                    break;
-                case VARCHAR:
-                    if(length <= 255){
-                        return strncmp((char*)datal, (char*)datar, length) == 0;
-                    }
-                    else{ // TODO: index on long varchar
-
-                    }
-                    break;
-                case NUMERIC:{
-                    int length = lengthNumberic(length >> 8);
-                    return strncmp((char*)datal, (char*)datar, length) == 0;
-                    break;
-                }
-                case DATE:
-                    return strncmp((char*)datal, (char*)datar, 3) == 0;
-                    break;
-                case INT:
-                    return *(int*)datal == *(int*)datar;
-                    break;
-            }
-        }
-
+        // Numeric: string <=> bin
 
         // dotleft.dotright, if there is no dot, the string would be ""
         // the bindata includes the 1 byte header
@@ -425,6 +283,8 @@ class DataType{
             // std::printf("\n");
         }
 
+        // Date: int <=> bin
+
         // write a date into binary
         static void dateToBin(int year, int month, int day, uchar* dst){
             memset(dst, 0, 3); // the date type takes up 3 bytes
@@ -442,72 +302,214 @@ class DataType{
             day = readBits(src, byte, offset, 5);
         }
 
-        static bool noLessThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
-            for(int i = 0; i < colNum; i++){
-                if(!noLessThan(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))))
+        /**
+         * 当left,right都为null时,返回true
+         * 当一方为null时,认为null为最小值
+        */
+        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+            if(type == NONE){
+                std::printf("Error: NONE type is not comparable");
+                return false;
+            }
+            const uchar* datal = left, *datar = right;
+            if(nullLeft && nullRight)
+                return true;
+            if(nullLeft)
+                return false;
+            if(nullRight)
+                return true;
+            switch (type)
+            {
+            case FLOAT:{ // we don't follow SQL server rules, float is just float. It takes 4 bytes
+                float* floatl = (float*)datal, *floatr = (float*)datar;
+                return *floatl >= *floatr;
+                break;
+            }
+            case BIGINT:{ // signed long long
+                ll* bigintl = (ll*)datal, *bigintr = (ll*)datar;
+                return *bigintl >= *bigintr;
+                break;
+            }
+            case CHAR:{ // 0-255 bytes
+                return strncmp((const char*)datal, (const char*)datar, length);
+                break;
+            }
+            case NUMERIC:{ 
+                // 1B: 1b for sign, 6b for dot position; 16B: 127b for 38 dec digits
+                // numeric(p, s), p = 1, 2,...38, s = 0, 1,...p. p is the max dec digits to store, s is the max dec digits to the right of dot
+                // p = 3k: bytes = ceiling(10k) + 1
+                // p = 3k + 1: bytes = ceiling(10k + 4) + 1
+                // p = 3k + 2: bytes = ceiling(10k + 7) + 1
+                // p, s are stored in length(ushort)
+                bool signl = datal[0] >> 7, signr = datar[0] >> 7;
+                if(signl != signr) // one is positive, the other is negative
+                    return signl ? false : true; // signl == true -> left <= 0
+                uint p = length >> 8, s = length & ((1 << 8) - 1);
+                uchar bufferl[p] = {0};
+                uchar bufferr[p] = {0};
+                binToDigits(datal + 1, bufferl, p);
+                binToDigits(datar + 1, bufferr, p);
+                int dotPosl = datal[0] & 63, dotPosr = datar[0] & 63;
+                bool isNegative = signl;
+                bool result = !isNegative; // comparison result of abs value, the value of this will stay untouched if two numberic are equal
+                // ? when converting float to bin, dotpos is max(leftDotLength, p - s)
+                // ? so when two numeric's dotpos are different, they have different leftDotLength
+                if(dotPosl < dotPosr){
+                    result = true; // note dotpos is the number of digits to the right of the dot
+                }
+                else if(dotPosl > dotPosr){
+                    result = false;
+                }
+                else{ // when two numeric have the same dotpos
+                    for(int i = 0; i < p; i++){
+                        if(bufferl[i] > bufferr[i]){
+                            result = true;
+                            break;
+                        }
+                        else if(bufferl[i] < bufferr[i]){
+                            result = false;
+                            break;
+                        }
+                    }
+                }
+                return isNegative ? !result : result;
+                break;
+            }
+            case DATE:{ // 14 bits of year 1~9999, 4 bits of month 1~12, 5 bits of day 1~31, total 23 bits < 3 Bytes
+                int yearl, monthl, dayl, yearr, monthr, dayr;
+                binToDate(datal, yearl, monthl, dayl);
+                binToDate(datar, yearr, monthr, dayr);
+                if(yearl < yearr)
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
+                if(monthl < monthr)
+                    return false;
+                if(dayl < dayr)
+                    return false;
+                return true;
+                break;
+            }
+            case INT: // 4 bytes as it is in cpp
+                return *(int*)(datal) >= *(int*)datar;
+                break;
+            case VARCHAR: // TODO
+                break;
+            default:
+                break;
+            }
+        }
+
+        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+            const uchar* datal = left, *datar = right;
+            if(nullLeft && nullRight)
+                return true;
+            if(nullLeft || nullRight)
+                return false;
+            switch(type){
+                case NONE:
+                    std::printf("trying to compare type NONE\n");
+                    return false;
+                    break;
+                case FLOAT:
+                    return *(float*)datal == *(float*)datar;
+                    break;
+                case BIGINT:
+                    return *(ll*)datal == *(ll*)datar;
+                    break;
+                case CHAR:
+                    return strncmp((char*)datal, (char*)datar, length) == 0;
+                    break;
+                case VARCHAR:
+                    if(length <= 255){
+                        return strncmp((char*)datal, (char*)datar, length) == 0;
+                    }
+                    else{ // TODO: index on long varchar
+
+                    }
+                    break;
+                case NUMERIC:{
+                    int length = lengthNumberic(length >> 8);
+                    return strncmp((char*)datal, (char*)datar, length) == 0;
+                    break;
+                }
+                case DATE:
+                    return strncmp((char*)datal, (char*)datar, 3) == 0;
+                    break;
+                case INT:
+                    return *(int*)datal == *(int*)datar;
+                    break;
+            }
+        }
+
+        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+            return noLessThan(left, right, type, length, nullLeft, nullRight) && !eq(left, right, type, length, nullLeft, nullRight);
+        }
+
+        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+            return greaterThan(right, left, type, length, nullRight, nullLeft);
+        }
+
+        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+            return noLessThan(right, left, type, length, nullRight, nullLeft);
+        }
+
+        // 复合属性比较
+
+        static bool noLessThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum){
+            for(int i = 0; i < colNum; i++){
+                if(!noLessThan(left, right, types[i], lengths[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
+                    return false;
+                int length = lengthOf(types[i], lengths[i]);
                 left += length;
                 right += length;
             }
             return true;
-        }
-
-        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
-            return noLessThan(left, right, type, length, nullable) && !eq(left, right, type, length, nullable);
-        }
-
-        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
-            return greaterThan(right, left, type, length, nullable);
-        }
-
-        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable){
-            return noGreaterThan(right, left, type, length, nullable);
         }
 
         // why not use noLessThanArr && !eqArr ? Because it is not efficient
-        static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
+        static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(greaterThan(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))) == false)
+                if(!greaterThan(left, right, types[i], lengths[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
+                int length = lengthOf(types[i], lengths[i]);
                 left += length;
                 right += length;
             }
             return true;
         }
 
-        static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum){
+        static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum){
             for(int i = 0; i < colNum; i++){
-                if(!eq(left, right, types[i], lengths[i], nullMask & (1 << (31 - i))))
+                if(!eq(left, right, types[i], lengths[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0);
+                int length = lengthOf(types[i], lengths[i]);
                 left += length;
                 right += length;
             }
             return true;
         }
+
+        // 可指定比较运算符
 
         /**
          * return if left cmp right is true. Length is the pure length excluding the null byte
         */
-        static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, bool nullable, uchar cmp){
+        static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, uchar cmp, bool nullLeft, bool nullRight){
             switch (cmp)
             {
             case Comparator::Any:
                 return true;
             case Comparator::Eq:
-                return eq(left, right, type, length, nullable);
+                return eq(left, right, type, length, nullLeft, nullRight);
             case Comparator::Gt:
-                return greaterThan(left, right, type, length, nullable);
+                return greaterThan(left, right, type, length, nullLeft, nullRight);
             case Comparator::GtEq:
-                return noLessThan(left, right, type, length, nullable);
+                return noLessThan(left, right, type, length, nullLeft, nullRight);
             case Comparator::Lt:
-                return lessThan(left, right, type, length, nullable);
+                return lessThan(left, right, type, length, nullLeft, nullRight);
             case Comparator::LtEq:
-                return noGreaterThan(left, right, type, length, nullable);
+                return noGreaterThan(left, right, type, length, nullLeft, nullRight);
             case Comparator::NE:
-                return !eq(left, right, type, length, nullable);
+                return !eq(left, right, type, length, nullLeft, nullRight);
             default:
                 std::printf("cmp doesn't match any strategy defined in Comparator.h\n");
                 return false;
@@ -517,11 +519,11 @@ class DataType{
         /**
          * 比较两组值，left cmp right == true iff left[i] cmp right[i] == true, i = 0, 1, ..., colNum - 1
         */
-        static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar cmp){
+        static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar cmp){
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp))
+                if(!compare(left, right, types[i], lengths[i], cmp, getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0); // ! use null word
+                int length = lengthOf(types[i], lengths[i]);
                 left += length;
                 right += length;
             }
@@ -531,23 +533,21 @@ class DataType{
         /**
          * 比较两组值，允许为每个字段指定比较方法，left cmp right == true iff left[i] cmp[i] right[i] == true, i = 0, 1, ..., colNum - 1
         */
-        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp){
+        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar* cmp){
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], nullMask & (1 << (31 - i)), cmp[i]))
+                if(!compare(left, right, types[i], lengths[i], cmp[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
                     return false;
-                int length = lengthOf(types[i], lengths[i]) + ((nullMask & (1 << (31 - i))) != 0); // ! use null word
+                int length = lengthOf(types[i], lengths[i]);
                 left += length;
                 right += length;
             }
             return true;
         }
 
-        static int calcTotalLength(const uchar* types, const ushort* lengths, uint nullMask, int colNum){
-            int ans = 0;
+        static int calcTotalLength(const uchar* types, const ushort* lengths, int colNum){
+            int ans = 4; // null word
             for(int i = 0; i < colNum; i++){
                     ans += lengthOf(types[i], lengths[i]);
-                    if(nullMask & (1 << (31 - i)))
-                        ans++; // ! use null word
             }
             return ans;
         }

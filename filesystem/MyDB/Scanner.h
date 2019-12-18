@@ -45,7 +45,7 @@ class Scanner{
             }
             while(table->NextRecord(*rid)){
                 record = table->GetRecord(*rid, rec); // Memory needs to be released
-                if(mode == lambda ? demand(*record) : DataType::compareArrMultiOp(record->GetData(), right, types, lengths, nullMask, colNum, cmp))
+                if(mode == lambda ? demand(*record) : DataType::compareArrMultiOp(record->GetData(), right, types, lengths, colNum, cmp))
                     return record;
                 record->FreeMemory();
                 record = nullptr;
@@ -66,7 +66,7 @@ class Scanner{
                 this->mode = arr;
                 if(this->right != nullptr)
                     delete[] this->right;
-                int totalLength = DataType::calcTotalLength(types, lengths, nullMask, colNum);
+                int totalLength = DataType::calcTotalLength(types, lengths, colNum);
                 this->right = new uchar[totalLength];
                 this->nullMask = nullMask;
                 this->colNum = colNum;

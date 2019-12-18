@@ -479,6 +479,13 @@ class Table{
             return tableID;
         }
 
+        /**
+         * Get header(read only)
+        */
+        const Header* GetHeader(){
+            return header;
+        }
+
         Scanner* GetScanner(bool (*demand)(const Record& record));
         Scanner* GetScanner(const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp);
 

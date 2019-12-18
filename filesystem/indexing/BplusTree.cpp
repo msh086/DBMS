@@ -38,7 +38,7 @@ int BplusTreeNode::findFirstGreaterInInternal(const uchar* data){
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth){
         // TODO: binary search maybe ?
         // find the first element > data
-        if(DataType::greaterThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->header->nullMask, tree->colNum)){
+        if(DataType::greaterThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum)){
             return i;
         }
     }
@@ -49,7 +49,7 @@ int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data){
     checkBuffer();
     uchar* cmpData = this->data + BplusTreeNode::reservedBytes;
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth + 8){
-        if(DataType::noLessThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->header->nullMask, tree->colNum)){
+        if(DataType::noLessThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum)){
             return i;
         }
     }

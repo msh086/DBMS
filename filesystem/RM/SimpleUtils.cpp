@@ -9,7 +9,7 @@ bool identical(const char* s1, const char* s2, int maxLen){
     return len1 == len2 && strncmp(s1, s2, len1) == 0;
 }
 
-bool getBitFromLeft(uint bitmap, int posFromLeft){
+bool getBitFromLeft(const uint bitmap, int posFromLeft){
     return bitmap & (1 << (31 - posFromLeft));
 }
 

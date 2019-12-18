@@ -186,7 +186,7 @@ class BplusTree{
                 }
                 else{ // get the next leaf node
                     BplusTreeNode* nextNode = GetTreeNode(nullptr, *node->NextLeafPtr());
-                    if(DataType::compareArr(node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, header->nullMask, colNum, mode)){
+                    if(DataType::compareArr(node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, colNum, mode)){
                         node = nextNode;
                         pos = 0;
                         return true;
@@ -195,7 +195,7 @@ class BplusTree{
                 }
             }
             // no at the tail of current leaf node
-            if(DataType::compareArr(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, header->nullMask, colNum, mode)){
+            if(DataType::compareArr(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, colNum, mode)){
                 pos++;
                 return true;
             }
