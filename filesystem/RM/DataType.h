@@ -5,6 +5,7 @@
 #include "Comparator.h"
 #include <iostream>
 #include <cstring>
+#include <string>
 using namespace std;
 
 class DataType{
@@ -101,6 +102,30 @@ class DataType{
             default: // char, varchar don't have a fixed length
                 printf("Undefined type in DataType::lengthOf\n");
                 return length; // TODO: varchar ?
+            }
+        }
+
+        static string TypeToString(uchar type, ushort length){
+            switch (type)
+            {
+            case 0:
+                return string("NONE");
+            case 1:
+                return "FLOAT";
+            case 2:
+                return "BIGINT";
+            case 3:
+                return "CHAR(" + std::to_string(length) + ")";
+            case 4:
+                return "VARCHAR(" + std::to_string(length) + ")";
+            case 5:
+                return "NUMERIC(" + std::to_string(length >> 8) + "," + std::to_string(length & 0xff) + ")";
+            case 6:
+                return "DATE";
+            case 7:
+                return "INT";
+            default:
+                return "UNDEFINED";
             }
         }
 

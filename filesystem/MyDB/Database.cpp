@@ -67,3 +67,106 @@ bool Table::RemoveIndex(const char* idxName){
     idxCount--;
     headerDirty = true;
 }
+
+void Table::Print(){
+    Record tmpRec;
+    RID tmpRID(1, 0);
+    GetRecord(tmpRID, &tmpRec);
+    std::vector<std::vector<std::string>> table;
+    // name, type, nullable, default
+    table.push_back(std::vector<std::string>());
+    table[0].push_back("Name");
+    table[0].push_back("Type");
+    table[0].push_back("Nullable");
+    table[0].push_back("Default");
+    int i = 0;
+    while(i < MAX_COL_NUM && header->attrType[i] != DataType::NONE){
+        std::vector<std::string> tmp;
+        tmp.push_back(string((char*)(header->attrName[i]), strnlen((char*)(header->attrName[i]), MAX_ATTRI_NAME_LEN)));
+        tmp.push_back(DataType::TypeToString(header->attrType[i], header->attrLenth[i]));
+        tmp.push_back(getBitFromLeft(header->nullMask, i) ? "" : "not null");
+        if(getBitFromLeft(header->defaultKeyMask, i)){
+            if(getBitFromLeft(*(uint*)tmpRec.GetData(), i))
+                tmp.push_back("NULL");
+            else
+                switch (header->attrType[i])
+                {
+                case DataType::NUMERIC:{
+                    int p = header->attrLenth[i] >> 8, s = header->attrLenth[i] & 0xff;
+                    uchar buf[p];
+                    DataType::binToDigits(tmpRec.GetData() + offsets[i] + 1, buf, p);
+                    uchar firstByte = tmpRec.GetData()[offsets[i]];
+                    bool hasSign = firstByte & 128;
+                    uchar dotPos = firstByte & 63;
+                    string str;
+                    if(hasSign)
+                        str.push_back('-');
+                    str.append((char*)buf, p - dotPos);
+                    if(dotPos)
+                        str.push_back('.');
+                    str.append((char*)(buf + p - dotPos), dotPos);
+                    tmp.push_back(str);
+                    break;
+                }
+                case DataType::DATE:{
+                    int y, m, d;
+                    DataType::binToDate(tmpRec.GetData() + offsets[i], y, m, d);
+                    tmp.push_back(std::to_string(y) + "-" + std::to_string(m) + "-" + std::to_string(d));
+                    break;
+                }
+                case DataType::INT:{
+                    tmp.push_back(std::to_string(*(int*)(tmpRec.GetData() + offsets[i])));
+                    break;
+                }
+                case DataType::BIGINT:{
+                    tmp.push_back(std::to_string(*(ll*)(tmpRec.GetData() + offsets[i])));
+                    break;
+                }
+                case DataType::FLOAT:{
+                    tmp.push_back(std::to_string(*(float*)(tmpRec.GetData() + offsets[i])));
+                    break;
+                }
+                case DataType::CHAR:{
+                    tmp.push_back(string((char*)(tmpRec.GetData() + offsets[i]), strnlen((char*)(tmpRec.GetData() + offsets[i]), 255)));
+                    break;
+                }
+                case DataType::VARCHAR:{
+                    if(header->attrLenth[i] <= 255)
+                        tmp.push_back(string((char*)(tmpRec.GetData() + offsets[i]), strnlen((char*)(tmpRec.GetData() + offsets[i]), 255)));
+                    else{
+                        uchar buf[header->attrLenth[i]] = {0};
+                        int page = *(uint*)(tmpRec.GetData() + offsets[i]), slot = *(uint*)(tmpRec.GetData() + offsets[i] + 4);
+                        ushort realLen = 0;
+                        db->GetLongVarchar(RID(page, slot), buf, realLen);
+                        tmp.push_back(string((char*)buf, realLen));
+                    }
+                    break;
+                }
+                default:
+                    assert(false);
+                    break;
+                }
+        }
+        else
+            tmp.push_back(""); // no default value
+        i++;
+        table.push_back(tmp);
+    }
+    Printer::PrintTable(table, 4, i + 1);
+    if(!header->primaryKeyMask)
+        printf("Primary key: NONE\n");
+    else{
+        printf("Primary key: (");
+        bool prev = false;
+        for(int i = 0; i < colCount; i++){
+            if(getBitFromLeft(header->primaryKeyMask, i)){
+                if(prev)
+                    printf(", ");
+                printf("%.*s", MAX_ATTRI_NAME_LEN, header->attrName[i]);
+                prev = true;
+            }
+        }
+        printf(")\n");
+    }
+    // TODO: foreign / index
+}

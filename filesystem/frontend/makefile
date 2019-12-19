@@ -53,6 +53,7 @@ clean :
 	- rm *.tab.*
 	- rm *.c
 	- rm $(BUILD_DIR)*.o
+	- rm main
 
 .PHONY : reset
 reset :

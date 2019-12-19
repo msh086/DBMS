@@ -16,6 +16,11 @@ struct Val{
 	std::string str;
 	uchar type = DataType::NONE;
 	uchar bytes[17] = {0};
+    void Reset(){
+        str.clear();
+        type = DataType::NONE;
+        memset(bytes, 0, 17);
+    }
 };
 
 /**
@@ -29,7 +34,16 @@ struct Field{
 	ushort length = 0;
 	bool nullable = true;
 	bool hasDefault = false;
-	const Val* defaultValue = nullptr;
+	Val defaultValue;
+    void Reset(){
+        name.clear();
+        type = DataType::NONE;
+        length = 0;
+        nullable = true;
+        hasDefault = false;
+        defaultValue.Reset();
+    }
+
     const static int INVALID_ARG = 1, OUT_OF_RANGE = 2, OTHER = 3;
     static uchar strToInt(const std::string& str, int& dst){
         

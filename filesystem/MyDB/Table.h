@@ -5,6 +5,9 @@
 #include "../bufmanager/BufPageManager.h"
 #include "../RM/SimpleUtils.h"
 #include <vector>
+#include <string>
+#include <cassert>
+#include "../frontend/Printer.h"
 class DBMS;
 class Database;
 class Scanner;
@@ -432,6 +435,14 @@ class Table{
                 bpm->markDirty(headerIdx);
                 bpm->writeBack(headerIdx); // marking dirty is not enough... write it back
             }
+            else{ // ? Even header isn't dirty, we need to give it back to storage, or the copy in bpm may be outdated
+                // ? e.g. this table is closed and another table is opened. The new table has the same fid as previously opened one
+                // ? if headerIdx in bpm is not written back, the bpm will assume falsely that it has buffer for the header in the new table
+                int curPage, curFid;
+                bpm->getKey(headerIdx, curFid, curPage);
+                if(fid == curFid && curPage == 0)
+                    bpm->writeBack(headerIdx);
+            }
             for(auto it = trackers.begin(); it != trackers.end(); it++){
                 int curPage, curFid;
                 bpm->getKey(it->idx, curFid, curPage);
@@ -495,6 +506,8 @@ class Table{
         int ColOffset(int i){
             return offsets[i];
         }
+
+        void Print();
 
         Scanner* GetScanner(bool (*demand)(const Record& record));
         Scanner* GetScanner(const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp);

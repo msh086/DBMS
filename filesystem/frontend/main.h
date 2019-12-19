@@ -34,6 +34,10 @@ yylval是用YYSTYPE宏定义的，只要重定义YYSTYPE宏，就能重新指定
 struct Col{
 	std::string tableName;
 	std::string colName;
+	void Reset(){
+		tableName.clear();
+		colName.clear();
+	}
 };
 
 struct SetInstr{
@@ -43,6 +47,10 @@ struct SetInstr{
 		this->colName = colName;
 		this->value = value;
 	}
+	void Reset(){
+		colName.clear();
+		value.Reset();
+	}
 };
 
 struct WhereInstr{
@@ -51,11 +59,22 @@ struct WhereInstr{
 	Val exprVal;
 	uchar cmp;
 	bool isExprCol = false;
+	void Reset(){
+		column.Reset();
+		exprCol.Reset();
+		exprVal.Reset();
+		cmp = Comparator::Any;
+		isExprCol = false;
+	}
 };
 
 struct Constraint{
 	std::vector<std::string> IDList;
 	bool isFK = false;
+	void Reset(){
+		IDList.clear();
+		isFK = false;
+	}
 };
 
 // 这是flex和yacc共用的数据结构,用于:flex向yacc传递数据;yacc产生式右侧向左侧传递数据
@@ -89,12 +108,36 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	// 偷懒的方法:用来保证只有parse到最顶层时才会执行sql.同时使代码不至于都挤到一起
 	std::vector<Type> typeBuf;
 	bool (*action)(std::vector<Type>& typeVec) = nullptr;
+
+	/**
+	 * Do nothing
+	 * Uncomment statements in this function when you suspect yacc is reusing objects
+	*/
+	void Reset(){
+		// pos = 0;
+		// fieldList.clear();
+		// valLists.clear();
+		// valList.clear();
+		// val.Reset();
+		// cmp = Comparator::Any;
+		// column.Reset();
+		// isExprCol = false;
+		// setList.clear();
+		// colList.clear();
+		// selectAll = false;
+		// IDList.clear();
+		// condList.clear();
+		// constraintList.clear();
+		// typeBuf.clear();
+		// action = nullptr;
+	}
 	/**
 	 * 将 @param value 的值转换为 @param type 类型,并存储到dst内
 	 * 返回转换是否成功
 	 * @param length 应为原始长度,不是内存长度
 	*/
 	static bool ConvertValue(Val& dst, uchar type, ushort length, const Val& value, bool nullable){
+		dst.type = value.type;
 		// decide subtype
 		if(value.type == DataType::NONE){ // value is null
 			if(nullable)
