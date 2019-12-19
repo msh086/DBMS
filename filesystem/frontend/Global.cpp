@@ -5,3 +5,4 @@ std::vector<Error> Global::errors;
 int Global::pos = 0;
 DBMS* Global::dbms = nullptr;
 char Global::formatBuffer[100] = "";
+bool Global::exitSign = false;

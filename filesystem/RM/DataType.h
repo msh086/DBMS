@@ -72,35 +72,35 @@ class DataType{
             DATE = 6,
             INT = 7;
         
-        // get the length of a type in bytes
-        static int lengthOf(uchar type, ushort length){
+        // get the length of a type in bytes, 
+        // if useMemoryLength is true, long varchar will get a return value of 8
+        // otherwise its max string length is returned
+        static int lengthOf(uchar type, ushort length, bool useMemoryLength = true){
             switch (type)
             {
             case NONE:
                 std::printf("trying to tell length of type NONE\n");
                 return 0;
-                break;
             case FLOAT:
                 return 4;
-                break;
             case BIGINT:
                 return 8;
-                break;
             case DATE:
                 return 3;
-                break;
             case INT:
                 return 4;
-                break;
             case NUMERIC:{
                 int p = length >> 8;
                 int p_div_3 = p / 3, p_mod_3 = p % 3;
                 return 1 + (p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0) + 7) / 8;
-                break;
             }
+            case CHAR:
+                return length;
+            case VARCHAR:
+                return (useMemoryLength && length > 255) ? 8 : length;
             default: // char, varchar don't have a fixed length
+                printf("Undefined type in DataType::lengthOf\n");
                 return length; // TODO: varchar ?
-                break;
             }
         }
 
@@ -550,6 +550,17 @@ class DataType{
                     ans += lengthOf(types[i], lengths[i]);
             }
             return ans;
+        }
+
+        /**
+         * Build offsets for columns
+        */
+        static void calcOffsets(const uchar* types, const ushort* lengths, int colNum, uint* dst){
+            int offset = 4;
+            for(int i = 0; i < colNum; i++){
+                dst[i] = offset;
+                offset += lengthOf(types[i], lengths[i]);
+            }
         }
 };
 

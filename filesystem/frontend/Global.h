@@ -32,6 +32,7 @@ class Global{
 		static int pos; // 当前位置
 		static DBMS* dbms;
 		static char formatBuffer[100];
+		static bool exitSign;
 		static void newError(int pos, const char* str){
 			errors.push_back(Error(pos, std::string(str)));
 		}

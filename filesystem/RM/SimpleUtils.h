@@ -12,4 +12,6 @@ bool getBitFromLeft(uint bitmap, int posFromLeft);
 
 void clearBitFromLeft(uint& bitmap, int posFromLeft);
 
+void setBitFromLeft(uint& bitmap, int posFromLeft);
+
 #endif

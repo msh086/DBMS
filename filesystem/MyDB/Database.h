@@ -108,7 +108,7 @@ class Database{
                 printf("Initializing db index\n");
                 // create info
                 fm->createFile(getPath(IDX_RESERVED_TABLE_NAME));
-                fm->openFile(getPath(IDX_RESERVED_TABLE_NAME), fid_info);
+                fm->openFile(getPath(IDX_RESERVED_TABLE_NAME), fid_idx);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
                 header->recordLenth = PAGE_SIZE; // TODO the null byte?
@@ -120,7 +120,7 @@ class Database{
                 header->exploitedNum = 1;
                 header->ToString(buffer);
                 delete header;
-                fm->writePage(fid_info, 0, (BufType)buffer, 0);
+                fm->writePage(fid_idx, 0, (BufType)buffer, 0);
                 delete[] buffer;
                 printf("db index init success\n");
             }
@@ -128,7 +128,7 @@ class Database{
                 printf("Initializing db varchar\n");
                 // create info
                 fm->createFile(getPath(VARCHAR_RESERVED_TABLE_NAME));
-                fm->openFile(getPath(VARCHAR_RESERVED_TABLE_NAME), fid_info);
+                fm->openFile(getPath(VARCHAR_RESERVED_TABLE_NAME), fid_varchar);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
                 header->recordLenth = VARCHAR_RECORD_LEN;;
@@ -153,7 +153,7 @@ class Database{
                 header->exploitedNum = 1;
                 header->ToString(buffer);
                 delete header;
-                fm->writePage(fid_info, 0, (BufType)buffer, 0);
+                fm->writePage(fid_varchar, 0, (BufType)buffer, 0);
                 delete[] buffer;
                 printf("db varchar init success\n");
             }
@@ -296,10 +296,6 @@ class Database{
 
         bool RenameTable(const char* oldName, const char* newName){
             // TODO, close first if opened?
-            uchar type = DataType::CHAR;
-            ushort length = MAX_TABLE_NAME_LEN;
-            uchar cmp = Comparator::Eq;
-            infoScanner->SetDemand((const uchar*)oldName, &type, &length, 0, 1, &cmp);
             if(TableExists(oldName)){ // after calling tableExist(name), the found record is stored in 'rec'
                 memset(rec->GetData(), 0, MAX_TABLE_NAME_LEN);
                 memcpy(rec->GetData(), newName, strlen(newName));
@@ -357,6 +353,26 @@ class Database{
                 }
             }
             return entry;
+        }
+
+        /**
+         * 根据提供的RID获取长varchar,其内容被存在dst中,长度被存在len中
+         * 请将dst开到足够大,否则会访问非法内存
+        */
+        void GetLongVarchar(const RID& rid, uchar* dst, ushort& len){
+            Record tmpRec;
+            len = 0;
+            RID tmpRID = RID(rid.PageNum, rid.SlotNum);
+            while(tmpRID.PageNum && tmpRID.SlotNum){
+                varchar->GetRecord(tmpRID, &tmpRec);
+                tmpRID.PageNum = *(uint*)tmpRec.GetData();
+                tmpRID.SlotNum = *(uint*)(tmpRec.GetData() +  4);
+                ushort fragLen = *(ushort*)(tmpRec.GetData() + 8);
+                memcpy(dst, tmpRec.GetData() + 10, fragLen);
+                dst += fragLen;
+                len += fragLen;
+                tmpRec.FreeMemory();
+            }
         }
 
         void RemoveLongVarchar(const RID& rid){

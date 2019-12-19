@@ -35,7 +35,7 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 %token 	ALTER		ADD			RENAME	DESC
 %token	INDEX		AND			DATE 	FLOAT
 %token	FOREIGN		REFERENCES	NUMERIC
-%token 	ON			TO
+%token 	ON			TO			EXIT
 // 以上是SQL关键字
 %token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
 %token 	IDENTIFIER	GE			LE 			NE
@@ -53,331 +53,478 @@ Start		:	Stmt
 
 Stmt		:	SysStmt ';'
 				{
-					printf("sys\n");
+					printf("YACC: sys\n");
+					if(!$$.action($$.typeBuf))
+						YYABORT;
 				}
 			| 	DbStmt ';'
 				{
-					printf("db\n");
+					printf("YACC: db\n");
+					if(!$$.action($$.typeBuf))
+						YYABORT;
 				}
 			| 	TbStmt ';'
 				{
-					printf("tb\n");
+					printf("YACC: tb\n");
+					$$.action($$.typeBuf);
 				}
 			|	 IdxStmt ';'
 				{
-					printf("idx\n");
+					printf("YACC: idx\n");
+					if(!$$.action($$.typeBuf))
+						YYABORT;
 				}
 			| 	AlterStmt ';'
 				{
-					printf("alter\n");
+					printf("YACC: alter\n");
+					if(!$$.action($$.typeBuf))
+						YYABORT;
+				}
+			| 	EXIT ';'
+				{
+					printf("YACC: exit\n");
+					Global::exitSign = true;
 				}
 			;
 
 SysStmt		:	SHOW DATABASES
 				{
-					printf("show db\n");
-					Scanner* scanner = Global::dbms->ShowDatabases();
-					Record rec;
-					while(scanner->NextRecord(&rec)){
-						printf("%s.%d\n", rec.GetData(), MAX_DB_NAME_LEN);
-						rec.FreeMemory();
-					}
-					scanner->Reset();
+					printf("YACC: show db\n");
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Scanner* scanner = Global::dbms->ShowDatabases();
+						Record rec;
+						while(scanner->NextRecord(&rec)){
+							printf(("%." + std::to_string(MAX_DB_NAME_LEN) + "s\n").data(), rec.GetData());
+							rec.FreeMemory();
+						}
+						scanner->Reset();
+						return true;
+					};
 				}
 			;
 
 DbStmt		:	CREATE DATABASE IDENTIFIER
 				{
-					printf("create db\n");
-					if($3.val.str.length() > MAX_DB_NAME_LEN){
-						Global::newError($3.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
-						YYABORT;
-					}
-					bool createRet = Global::dbms->CreateDatabase($3.val.str.data());
-					if(!createRet){
-						Global::newError($3.pos, "Database with the same name already exists");
-						YYABORT;
-					}
+					printf("YACC: create db\n");
+					$$.typeBuf.push_back($3);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &T3 = typeVec[0];
+						if(T3.val.str.length() > MAX_DB_NAME_LEN){
+							Global::newError(T3.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
+							return false;
+						}
+						bool createRet = Global::dbms->CreateDatabase(T3.val.str.data());
+						if(!createRet){
+							Global::newError(T3.pos, "Database with the same name already exists");
+							return false;
+						}
+						return true;
+					};
 				}
 			|	DROP DATABASE IDENTIFIER
 				{
-					printf("drop db\n");
-					if($3.val.str.length() > MAX_DB_NAME_LEN){
-						Global::newError($3.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
-						YYABORT;
-					}
-					bool dropRet = Global::dbms->DropDatabase($3.val.str.data());
-					if(!dropRet){ // no such database
-						Global::newError($3.pos, Global::format("No database named %s", $3.val.str.data()));
-						YYABORT;
-					}
+					printf("YACC: drop db\n");
+					$$.typeBuf.push_back($3);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type& T3 = typeVec[0];
+						if(T3.val.str.length() > MAX_DB_NAME_LEN){
+							Global::newError(T3.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
+							return false;
+						}
+						bool dropRet = Global::dbms->DropDatabase(T3.val.str.data());
+						if(!dropRet){ // no such database
+							Global::newError(T3.pos, Global::format("No database named %s", T3.val.str.data()));
+							return false;
+						}
+						return true;
+					};
 				}
 			|	USE IDENTIFIER
 				{
-					printf("use db\n");
-					if($2.val.str.length() > MAX_DB_NAME_LEN){
-						Global::newError($2.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
-						YYABORT;
-					}
-					Database* useRet = Global::dbms->UseDatabase($2.val.str.data());
-					if(!useRet){
-						Global::newError($2.pos, Global::format("No database named %s", $2.val.str.data()));
-						YYABORT;
-					}
+					printf("YACC: use db\n");
+					$$.typeBuf.push_back($2);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &T2 = typeVec[0];
+						if(T2.val.str.length() > MAX_DB_NAME_LEN){
+							Global::newError(T2.pos, Global::format("Database name should be no longer than %d", MAX_DB_NAME_LEN));
+							return false;
+						}
+						Database* useRet = Global::dbms->UseDatabase(T2.val.str.data());
+						if(!useRet){
+							Global::newError(T2.pos, Global::format("No database named %s", T2.val.str.data()));
+							return false;
+						}
+						return true;
+					};
 				}
 			|	SHOW TABLES
 				{
-					printf("show tb\n");
-					Database* curDB = Global::dbms->CurrentDatabase();
-					if(!curDB){
-						Global::newError($1.pos, "No database in use");
-						YYABORT;
-					}
-					Scanner* scanner = curDB->ShowTables();
-					Record rec;
-					while(scanner->NextRecord(&rec)){
-						printf("%s.%d\n", rec.GetData(), MAX_TABLE_NAME_LEN);
-						rec.FreeMemory();
-					}
-					scanner->Reset();
+					printf("YACC: show tb\n");
+					$$.typeBuf.push_back($1);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &T1 = typeVec[0];
+						Database* curDB = Global::dbms->CurrentDatabase();
+						if(!curDB){
+							Global::newError(T1.pos, "No database in use");
+							return false;
+						}
+						Scanner* scanner = curDB->ShowTables();
+						Record rec;
+						while(scanner->NextRecord(&rec)){
+							printf(("%." + std::to_string(MAX_TABLE_NAME_LEN) + "s\n").data(), rec.GetData());
+							rec.FreeMemory();
+						}
+						scanner->Reset();
+						return true;
+					};
 				}
 			;
 
+// header.attrLenth是原始长度
 TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 				{
-					printf("create tb\n");
-					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::newError($3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
-						YYABORT;
-					}
-					if($5.fieldList.size() > MAX_COL_NUM){
-						Global::newError($5.pos, Global::format("Number of columns in a tables should be not more than %d", MAX_COL_NUM));
-						YYABORT;
-					}
-					if(Global::dbms->CurrentDatabase() == nullptr){
-						Global::newError($1.pos, "No available database");
-						YYABORT;
-					}
-					if(Global::dbms->CurrentDatabase()->TableExists($3.val.str.data())){
-						Global::newError($3.pos, Global::format("Another table named %s already exists", $3.val.str.data()));
-						YYABORT;
-					}
-					std::set<std::string> allNames;
-					Header header;
-					int pos = 0;
-					for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++){
-						if(!allNames.insert(it->name).second){
-							Global::newError($5.pos, Global::format("Field name %s conflicts with previous field name", it->name.data()));
-							YYABORT;
+					printf("YACC: create tb\n");
+					$$.typeBuf.push_back($1);
+					$$.typeBuf.push_back($3);
+					$$.typeBuf.push_back($5);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T5 = typeVec[2];
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::newError(T3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+							return false;
 						}
-						// update header
-						header.recordLenth += DataType::lengthOf(it->type, it->length);
-						if(it->nullable)
-							header.nullMask |= 1 << (31 - pos);
-						if(it->hasDefault)
-							header.defaultKeyMask |= 1 << (31 - pos);
-						header.attrLenth[pos] = it->length;
-						header.attrType[pos] = it->type;
-						memcpy(header.attrName[pos], it->name.data(), it->name.length());
-						pos++;
-					}
-					header.recordLenth += 4; // TODO: the null word?
-					header.slotNum = PAGE_SIZE / header.recordLenth;
-					// handle constraints
-					bool hasPrimary = false;
-					// lambda function, get the index of a given name
-					auto getNameIndex = [=](const std::string& target)->int{
-						int ans = 0;
-						for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++){
-							if(it->name == target)
-								return ans;
-							ans++;
+						if(T5.fieldList.size() > MAX_COL_NUM){
+							Global::newError(T5.pos, Global::format("Number of columns in a tables should be not more than %d", MAX_COL_NUM));
+							return false;
 						}
-						return -1;
-					};
-					// number of foreign key constraints
-					int fkIndex = 0;
-					for(auto it = $5.constraintList.begin(); it != $5.constraintList.end(); it++){
-						// multiple primary keys
-						if(hasPrimary && !it->isFK){
-							Global::newError($5.pos, "Multiple primary key declaration");
-							YYABORT;
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::newError(T1.pos, "No available database");
+							return false;
 						}
-						// check names
-						if(!it->isFK) { // primary key constraint, all IDs need to be declared
-							hasPrimary = true;
-							for(auto id_it = it->IDList.begin(); id_it != it->IDList.end(); id_it++){
-								if(!allNames.count(*id_it)){
-									Global::newError($5.pos, Global::format("Undeclared field name %s in constraint", (*id_it).data()));
-									YYABORT;
+						if(Global::dbms->CurrentDatabase()->TableExists(T3.val.str.data())){
+							Global::newError(T3.pos, Global::format("Another table named %s already exists", T3.val.str.data()));
+							return false;
+						}
+						std::set<std::string> allNames;
+						Header header;
+						int pos = 0;
+						for(auto it = T5.fieldList.begin(); it != T5.fieldList.end(); it++){
+							if(!allNames.insert(it->name).second){
+								Global::newError(T5.pos, Global::format("Field name %s conflicts with previous field name", it->name.data()));
+								return false;
+							}
+							// update header
+							header.recordLenth += DataType::lengthOf(it->type, it->length); // 内存长度而非原始长度
+							if(it->nullable)
+								header.nullMask |= 1 << (31 - pos);
+							if(it->hasDefault)
+								header.defaultKeyMask |= 1 << (31 - pos);
+							header.attrLenth[pos] = it->length; // 使用原始长度
+							header.attrType[pos] = it->type;
+							memcpy(header.attrName[pos], it->name.data(), it->name.length());
+							pos++;
+						}
+						header.recordLenth += 4; // TODO: the null word?
+						header.slotNum = PAGE_SIZE / header.recordLenth;
+						// handle constraints
+						bool hasPrimary = false;
+						// lambda function, get the index of a given name
+						auto getNameIndex = [=](const std::string& target)->int{
+							int ans = 0;
+							for(auto it = T5.fieldList.begin(); it != T5.fieldList.end(); it++){
+								if(it->name == target)
+									return ans;
+								ans++;
+							}
+							return -1;
+						};
+						// number of foreign key constraints
+						int fkIndex = 0;
+						for(auto it = T5.constraintList.begin(); it != T5.constraintList.end(); it++){
+							// multiple primary keys
+							if(hasPrimary && !it->isFK){
+								Global::newError(T5.pos, "Multiple primary key declaration");
+								return false;
+							}
+							// check names
+							if(!it->isFK) { // primary key constraint, all IDs need to be declared
+								hasPrimary = true;
+								for(auto id_it = it->IDList.begin(); id_it != it->IDList.end(); id_it++){
+									if(!allNames.count(*id_it)){
+										Global::newError(T5.pos, Global::format("Undeclared field name %s in constraint", (*id_it).data()));
+										return false;
+									}
+									// update header
+									header.primaryKeyMask |= 1 << (31 - getNameIndex(*id_it));
 								}
-								// update header
-								header.primaryKeyMask |= 1 << (31 - getNameIndex(*id_it));
+							}
+							else{ // foreign key constraint(single key)  IDList = {slaveCol, masterTable, masterCol}
+								// check slaveCol name
+								if(!allNames.count(it->IDList[0])){
+									Global::newError(T5.pos, Global::format("Undeclared field name %s in constraint", it->IDList[0].data()));
+									return false;
+								}
+								// check masterTable name and masterCol name
+								Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1].data());
+								if(!master){ // no such table
+									Global::newError(T5.pos, Global::format("No table named %s under database %s", it->IDList[1].data(), Global::dbms->CurrentDatabase()->GetName()));
+									return false;
+								}
+								int masterColIndex = master->IDofCol(it->IDList[2].data());
+								if(masterColIndex == COL_ID_NONE){
+									Global::newError(T5.pos, Global::format("No field named %s in table %s", it->IDList[2].data(), it->IDList[1].data()));
+									return false;
+								}
+								if(fkIndex == MAX_REF_SLAVE_TIME){
+									Global::newError(T5.pos, Global::format("A table can reference other tables in foreign key constraint no more than %d times", MAX_REF_SLAVE_TIME));
+									return false;
+								}
+								// update header, this fk constraint is anonymous
+								header.fkMaster[fkIndex] = master->GetTableID();
+								header.masterKeyID[fkIndex] = 1 << (31 - masterColIndex);
+								header.slaveKeyID[fkIndex] = 1 << (31 - getNameIndex(it->IDList[0].data()));
+								fkIndex++;
+								// TODO: update the master table's fk info ?
+								Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // never forget to close a table after use
 							}
 						}
-						else{ // foreign key constraint(single key)  IDList = {slaveCol, masterTable, masterCol}
-							// check slaveCol name
-							if(!allNames.count(it->IDList[0])){
-								Global::newError($5.pos, Global::format("Undeclared field name %s in constraint", it->IDList[0].data()));
-								YYABORT;
-							}
-							// check masterTable name and masterCol name
-							Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1].data());
-							if(!master){ // no such table
-								Global::newError($5.pos, Global::format("No table named %s under database %s", it->IDList[1].data(), Global::dbms->CurrentDatabase()->GetName()));
-								YYABORT;
-							}
-							int masterColIndex = master->IDofCol(it->IDList[2].data());
-							if(masterColIndex == COL_ID_NONE){
-								Global::newError($5.pos, Global::format("No field named %s in table %s", it->IDList[2].data(), it->IDList[1].data()));
-								YYABORT;
-							}
-							if(fkIndex == MAX_REF_SLAVE_TIME){
-								Global::newError($5.pos, Global::format("A table can reference other tables in foreign key constraint no more than %d times", MAX_REF_SLAVE_TIME));
-								YYABORT;
-							}
-							// update header, this fk constraint is anonymous
-							header.fkMaster[fkIndex] = master->GetTableID();
-							header.masterKeyID[fkIndex] = 1 << (31 - masterColIndex);
-							header.slaveKeyID[fkIndex] = 1 << (31 - getNameIndex(it->IDList[0].data()));
-							fkIndex++;
-							// TODO: update the master table's fk info ?
-							Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // never forget to close a table after use
-						}
-					}
-					// build default record
-					uchar dftRec[header.recordLenth] = {0};
-					int dftBufPos = 4; // skip the null word
-					int dftIndex = 0;
-					for(auto it = $5.fieldList.begin(); it != $5.fieldList.end(); it++, dftIndex++){
-						int fieldLength = DataType::lengthOf(it->type, it->length);
-						if(it->hasDefault){
-							if(it->defaultValue->type == DataType::NONE){ // special case, default value is null
-								dftRec[dftIndex >> 3] |= 128 >> (dftIndex & 7); // set null word
-							}
-							if(it->type == DataType::CHAR){
-								memcpy(dftRec + dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
-							}
-							else if(it->type == DataType::VARCHAR){
-								if(it->length <= 255)
+						// build default record
+						uchar dftRec[header.recordLenth] = {0};
+						int dftBufPos = 4; // skip the null word
+						int dftIndex = 0;
+						for(auto it = T5.fieldList.begin(); it != T5.fieldList.end(); it++, dftIndex++){
+							int fieldLength = DataType::lengthOf(it->type, it->length); // 使用内存长度而非原始长度
+							if(it->hasDefault){
+								if(it->defaultValue->type == DataType::NONE){ // special case, default value is null
+									dftRec[dftIndex >> 3] |= 128 >> (dftIndex & 7); // set null word
+								}
+								if(it->type == DataType::CHAR){
 									memcpy(dftRec + dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
-								else{ // long varchar
-									RID varcharRID;
-									Global::dbms->CurrentDatabase()->InsertLongVarchar(it->defaultValue->str.data(), it->defaultValue->str.length(), &varcharRID);
-									*(uint*)(dftRec + dftBufPos) = varcharRID.GetPageNum();
-									*(uint*)(dftRec + dftBufPos + 4) = varcharRID.GetSlotNum();
+								}
+								else if(it->type == DataType::VARCHAR){
+									if(it->length <= 255)
+										memcpy(dftRec + dftBufPos, it->defaultValue->str.data(), it->defaultValue->str.length());
+									else{ // long varchar
+										RID varcharRID;
+										Global::dbms->CurrentDatabase()->InsertLongVarchar(it->defaultValue->str.data(), it->defaultValue->str.length(), &varcharRID);
+										*(uint*)(dftRec + dftBufPos) = varcharRID.GetPageNum();
+										*(uint*)(dftRec + dftBufPos + 4) = varcharRID.GetSlotNum();
+									}
+								}
+								else{
+									memcpy(dftRec + dftBufPos, it->defaultValue->bytes, fieldLength);
 								}
 							}
-							else{
-								memcpy(dftRec + dftBufPos, it->defaultValue->bytes, fieldLength);
-							}
+							dftBufPos += fieldLength;
 						}
-						dftBufPos += fieldLength;
-					}
-					if(!Global::dbms->CurrentDatabase()->CreateTable($3.val.str.data(), &header, dftRec))
-						printf("Unknown error in creating table\n");
+						if(!Global::dbms->CurrentDatabase()->CreateTable(T3.val.str.data(), &header, dftRec))
+							printf("Unknown error in creating table\n");
+						return true;
+					};
 				}
 			|	DROP TABLE IDENTIFIER
 				{
-					printf("drop tb\n");
-					if(Global::dbms->CurrentDatabase() == nullptr){
-						Global::newError($1.pos, "No available database");
-						YYABORT;
-					}
-					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::newError($3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
-						YYABORT;
-					}
-					if(!Global::dbms->CurrentDatabase()->DeleteTable($3.val.str.data())){
-						Global::newError($3.pos, Global::format("No database named %s", $3.val.str.data()));
-						YYABORT;
-					}
+					printf("YACC: drop tb\n");
+					$$.typeBuf.push_back($1);
+					$$.typeBuf.push_back($3);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &T1 = typeVec[0], &T3 = typeVec[1];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::newError(T1.pos, "No available database");
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::newError(T3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+							return false;
+						}
+						if(!Global::dbms->CurrentDatabase()->DeleteTable(T3.val.str.data())){
+							Global::newError(T3.pos, Global::format("No database named %s", T3.val.str.data()));
+							return false;
+						}
+						return true;
+					};
 				}
 			|	DESC IDENTIFIER
 				{
-					printf("desc tb\n");
-					if(Global::dbms->CurrentDatabase() == nullptr){
-						Global::newError($1.pos, "No available database");
-						YYABORT;
-					}
-					if($2.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::newError($2.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
-						YYABORT;
-					}
-					Table* table = Global::dbms->CurrentDatabase()->OpenTable($2.val.str.data());
-					if(!table){
-						Global::newError($2.pos, Global::format("No table named %s", $2.val.str.data()));
-						YYABORT;
-					}
-					// TODO: describe table
+					printf("YACC: desc tb\n");
+					$$.typeBuf.push_back($1);
+					$$.typeBuf.push_back($2);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &T1 = typeVec[0], &T2 = typeVec[1];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::newError(T1.pos, "No available database");
+							return false;
+						}
+						if(T2.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::newError(T2.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T2.val.str.data());
+						if(!table){
+							Global::newError(T2.pos, Global::format("No table named %s", T2.val.str.data()));
+							return false;
+						}
+						// TODO: describe table
+						Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+					};
 				}
-			|	INSERT INTO IDENTIFIER VALUES '(' valueLists ')' // valueLists = '(' valueList ')' (',' '(' valueList ')')*, 用于一次插入多条记录
+			|	INSERT INTO IDENTIFIER VALUES valueLists // valueLists = '(' valueList ')' (',' '(' valueList ')')*, 用于一次插入多条记录
 				{
-					printf("insert db\n");
+					printf("YACC: insert db\n");
+					$$.typeBuf.push_back($$);
+					$$.typeBuf.push_back($1);
+					$$.typeBuf.push_back($3);
+					$$.typeBuf.push_back($5);
+					$$.action = [](std::vector<Type> &typeVec)->bool{
+						Type &TT = typeVec[0], &T1 = typeVec[1], &T3 = typeVec[2], &T5 = typeVec[3];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::newError(T1.pos, "No available database");
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::newError(T3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(!table){
+							Global::newError(T3.pos, Global::format("No table named %s", T3.val.str.data()));
+							return false;
+						}
+						Record tmpRec;
+						RID tmpRID(1, 0);
+						table->GetRecord(tmpRID, &tmpRec); // the default record
+						const Header* header = table->GetHeader();
+						for(auto list_it = T5.valLists.begin(); list_it != T5.valLists.end(); list_it++){
+							int arg_pos = 0;
+							for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){
+								if(arg_pos == MAX_COL_NUM || header->attrType[arg_pos] == DataType::NONE){
+									Global::newError(T5.pos, Global::format("Incompatible field num, %d expected, %d given", arg_pos, list_it->size()));
+									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data()); // remember to close table before exit
+									return false;
+								}
+								if(!Type::ConvertValue(TT.val, header->attrType[arg_pos], header->attrLenth[arg_pos], *arg_it, getBitFromLeft(header->nullMask, arg_pos))){
+									Global::newError(T5.pos, Global::format("Incompatible type for field %s.%d", header->attrName[arg_pos], MAX_ATTRI_NAME_LEN));
+									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+									return false;
+								}
+								if(arg_it->type == DataType::NONE) // null value
+									TT.val.type = DataType::NONE;
+								else
+									TT.val.type = header->attrType[arg_pos];
+								arg_pos++;
+								TT.valList.push_back(TT.val);
+							}
+							while(arg_pos < MAX_COL_NUM && header->attrType[arg_pos] != DataType::NONE){
+								if(!getBitFromLeft(header->defaultKeyMask, arg_pos)){
+									Global::newError(T5.pos, Global::format("No default value for field %s.%d", header->attrName[arg_pos], MAX_ATTRI_NAME_LEN));
+									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+									return false;
+								}
+								else{
+									if(getBitFromLeft(*tmpRec.GetData(), arg_pos)){ // default value is null
+										TT.val.type = DataType::NONE;
+									}
+									else{
+										memcpy(TT.val.bytes, tmpRec.GetData() + table->ColOffset(arg_pos), DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
+										// NOTE: default value is long varchar -> insert a COPY of the long varchar
+									}
+									TT.valList.push_back(TT.val);
+								}
+							}
+							TT.valLists.push_back(TT.valList);
+							TT.valList.clear();
+						}
+						// TODO: primary / foreign key constraint
+						// TODO: maintain index
+						// now there is no error in input, start insertion
+						for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every valList, build a record
+							int arg_pos = 0;
+							memset(tmpRec.GetData(), 0, 4); // set null word to 0
+							for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){ // for every field, perpare its value
+								if(arg_it->type == DataType::NONE) // null value
+									setBitFromLeft(*(uint*)(tmpRec.GetData()), arg_pos);
+								else if(header->attrType[arg_pos] == DataType::VARCHAR && header->attrLenth[arg_pos] > 255){ // long varchar
+									uchar varcharBuf[header->attrLenth[arg_pos]] = {0};
+									ushort len = 0;
+									RID dftRID = RID(*(uint*)arg_it->bytes, *(uint*)(arg_it->bytes + 4));
+									Global::dbms->CurrentDatabase()->GetLongVarchar(dftRID, varcharBuf, len);
+									Global::dbms->CurrentDatabase()->InsertLongVarchar((const char*)varcharBuf, len, &dftRID);
+									*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos)) = dftRID.GetPageNum();
+									*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos) + 4) = dftRID.GetSlotNum();
+								}
+								else
+									memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->bytes, DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
+								arg_pos++;
+							}
+							table->InsertRecord(tmpRec.GetData(), &tmpRID);
+						}
+						Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+						return true;
+					};
 				}
 			|	DELETE FROM IDENTIFIER WHERE whereClause
 				{
-					printf("delete tb\n");
+					printf("YACC: delete tb\n");
 				}
 			|	UPDATE IDENTIFIER SET setClause WHERE whereClause
 				{
-					printf("update tb\n");
+					printf("YACC: update tb\n");
 				}
 			| 	SELECT selector FROM IdList WHERE whereClause
 				{
-					printf("select tb\n");
+					printf("YACC: select tb\n");
 				}
 			;
 
 IdxStmt		:	CREATE INDEX IDENTIFIER ON IDENTIFIER '(' IdList ')'
 				{
-					printf("create idx\n");
+					printf("YACC: create idx\n");
 				}
 			|	DROP INDEX IDENTIFIER
 				{
-					printf("drop idx\n");
+					printf("YACC: drop idx\n");
 				}
 			|	ALTER TABLE IDENTIFIER ADD INDEX IDENTIFIER '(' IdList ')'
 				{
-					printf("alter add idx\n");
+					printf("YACC: alter add idx\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP INDEX IDENTIFIER
 				{
-					printf("alter drop idx\n");
+					printf("YACC: alter drop idx\n");
 				}
 			;
 
 AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 				{
-					printf("alter add col\n");
+					printf("YACC: alter add col\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP IDENTIFIER
 				{
-					printf("alter drop col\n");
+					printf("YACC: alter drop col\n");
 				}
 			|	ALTER TABLE IDENTIFIER CHANGE IDENTIFIER field
 				{
-					printf("alter change field\n");
+					printf("YACC: alter change field\n");
 				}
 			|	ALTER TABLE IDENTIFIER RENAME TO IDENTIFIER
 				{
-					printf("alter rename\n");
+					printf("YACC: alter rename\n");
 				}
 			|	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
 				{
-					printf("alter add primary\n");
+					printf("YACC: alter add primary\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP PRIMARY KEY
 				{
-					printf("alter drop primary\n");
+					printf("YACC: alter drop primary\n");
 				}
 			|	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' colList ')' REFERENCES IDENTIFIER '(' colList ')'
 				{
-					printf("alter add foreign\n");
+					printf("YACC: alter add foreign\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP FOREIGN KEY IDENTIFIER
 				{
-					printf("alter drop foreign\n");
+					printf("YACC: alter drop foreign\n");
 				}
 			;
 			// we do not support:
@@ -387,7 +534,7 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 // fieldList 是建表时使用的
 fieldList	:	fieldList ',' field
 				{
-					printf("fieldList recur\n");
+					printf("YACC: fieldList recur\n");
 					$$.fieldList = $1.fieldList;
 					$$.constraintList = $1.constraintList;
 					if($3.constraintList.empty())
@@ -397,7 +544,7 @@ fieldList	:	fieldList ',' field
 				}
 			|	field
 				{
-					printf("fieldList base\n");
+					printf("YACC: fieldList base\n");
 					if($1.constraintList.empty())
 						$$.fieldList.push_back($1.field);
 					else
@@ -407,9 +554,10 @@ fieldList	:	fieldList ',' field
 
 // field可以组成fieldList用于建表,也可以在alter add里面用于增加列
 // 名字长度已经经过检查
+// field.length应该保留varchar的原始长度
 field		:	IDENTIFIER type
 				{
-					printf("field normal\n");
+					printf("YACC: field normal\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
@@ -417,11 +565,11 @@ field		:	IDENTIFIER type
 					else
 						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
-					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes, false); // keep string length
 				}
 			|	IDENTIFIER type NOT KW_NULL
 				{
-					printf("field not null\n");
+					printf("YACC: field not null\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
@@ -429,12 +577,12 @@ field		:	IDENTIFIER type
 					else
 						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
-					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes, false); // keep string length
 					$$.field.nullable = false;
 				}
 			|	IDENTIFIER type DEFAULT value
 				{
-					printf("field default\n");
+					printf("YACC: field default\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
@@ -442,78 +590,19 @@ field		:	IDENTIFIER type
 					else
 						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
-					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
-					// decide subtype
-					if($4.val.type == DataType::NONE){ // value is null
-						// do nothing, $$.field.defaultValue will be nullptr
-					}
-					if($4.val.type == DataType::INT && $2.val.type == DataType::BIGINT){
-						*(ll*)$$.val.bytes = *(int*)$4.val.bytes;
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes, false); // keep string length
+					$$.field.hasDefault = true;
+					if(Type::ConvertValue($$.val, $2.val.type, *(uint*)$2.val.bytes, $4.val, true)){
 						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::INT && $2.val.type == DataType::FLOAT){
-						*(float*)$$.val.bytes = *(int*)$4.val.bytes;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::FLOAT && $2.val.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val.bytes;
-						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(float*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.find('.'), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::INT && $2.val.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val.bytes;
-						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(int*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::BIGINT && $2.val.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val.bytes;
-						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(ll*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::CHAR && $2.val.type == DataType::VARCHAR){
-						$$.val.str = $4.val.str;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::CHAR && $2.val.type == DataType::CHAR && $4.val.str.length() <= *(int*)$2.val.bytes){
-						$$.val.str = $4.val.str;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == DataType::VARCHAR && $2.val.type == DataType::VARCHAR && $4.val.str.length() <= *(int*)$2.val.bytes){
-						$$.val.str = $4.val.str;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($4.val.type == $2.val.type){
-						if($2.val.type == DataType::INT){
-							*(int*)$$.val.bytes = *(int*)$4.val.bytes;
-							$$.field.defaultValue = &$$.val;
-						}
-						else if($2.val.type == DataType::BIGINT){
-							*(ll*)$$.val.bytes = *(ll*)$4.val.bytes;
-							$$.field.defaultValue = &$$.val;
-						}
-						else if($2.val.type == DataType::FLOAT){
-							*(float*)$$.val.bytes = *(float*)$4.val.bytes;
-							$$.field.defaultValue = &$$.val;
-						}
-						else if($2.val.type == DataType::DATE){
-							memcpy($$.val.bytes, $4.val.bytes, 3);
-							$$.field.defaultValue = &$$.val;
-						}
-						// a value will only be parsed as float, not numeric
-						// varchar and char are solved previously
 					}
 					else{ // wrong
 						Global::newError($4.pos, "Default value and field type are incompatible");
 						YYABORT;
 					}
-					$$.field.hasDefault = true;
 				}
 			|	IDENTIFIER type NOT KW_NULL DEFAULT value
 				{
-					printf("not null default\n");
+					printf("YACC: not null default\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
 						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
@@ -521,79 +610,19 @@ field		:	IDENTIFIER type
 					else
 						$$.field.name = $1.val.str;
 					$$.field.type = $2.val.type;
-					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes);
-					// decide subtype
-					if($6.val.type == DataType::NONE){ // value is null, which conflicts with not null constraint
-						Global::newError($6.pos, "Default value for non-null field cannot be null");
-						YYABORT;
-					}
-					if($6.val.type == DataType::INT && $2.val.type == DataType::BIGINT){
-						*(ll*)$$.val.bytes = *(int*)$6.val.bytes;
+					$$.field.length = DataType::lengthOf($2.val.type, *(uint*)$2.val.bytes, false); // keep string length
+					$$.field.hasDefault = true;
+					if(Type::ConvertValue($$.val, $2.val.type, *(uint*)$2.val.bytes, $6.val, false)){
 						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::INT && $2.val.type == DataType::FLOAT){
-						*(float*)$$.val.bytes = *(int*)$6.val.bytes;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::FLOAT && $2.val.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val.bytes;
-						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(float*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.find('.'), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::INT && $2.val.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val.bytes;
-						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(int*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::BIGINT && $2.val.type == DataType::NUMERIC){
-						uint pns = *(uint*)$2.val.bytes;
-						int byteNum = DataType::lengthOf(DataType::NUMERIC, pns);
-						DataType::floatToBin(*(ll*)$2.val.bytes < 0, $2.val.str.data(), $2.val.str.length(), $$.val.bytes, pns >> 8, pns & 0xff);
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::CHAR && $2.val.type == DataType::VARCHAR){
-						$$.val.str = $6.val.str;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::CHAR && $2.val.type == DataType::CHAR && $6.val.str.length() <= *(int*)$2.val.bytes){
-						$$.val.str = $6.val.str;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == DataType::VARCHAR && $2.val.type == DataType::VARCHAR && $6.val.str.length() <= *(int*)$2.val.bytes){
-						$$.val.str = $6.val.str;
-						$$.field.defaultValue = &$$.val;
-					}
-					else if($6.val.type == $2.val.type){
-						if($2.val.type == DataType::INT){
-							*(int*)$$.val.bytes = *(int*)$6.val.bytes;
-							$$.field.defaultValue = &$$.val;
-						}
-						else if($2.val.type == DataType::BIGINT){
-							*(ll*)$$.val.bytes = *(ll*)$6.val.bytes;
-							$$.field.defaultValue = &$$.val;
-						}
-						else if($2.val.type == DataType::FLOAT){
-							*(float*)$$.val.bytes = *(float*)$6.val.bytes;
-							$$.field.defaultValue = &$$.val;
-						}
-						else if($2.val.type == DataType::DATE){
-							memcpy($$.val.bytes, $6.val.bytes, 3);
-							$$.field.defaultValue = &$$.val;
-						}
-						// a value will only be parsed as float, not numeric
-						// varchar and char are solved previously
 					}
 					else{ // wrong
 						Global::newError($6.pos, "Default value and field type are incompatible");
 						YYABORT;
 					}
-					$$.field.hasDefault = true;
 				}
 			|	PRIMARY KEY '(' IdList ')'
 				{
-					printf("primary key\n");
+					printf("YACC: primary key\n");
 					Constraint tmp;
 					tmp.IDList = $4.IDList;
 					tmp.isFK = false;
@@ -601,7 +630,7 @@ field		:	IDENTIFIER type
 				}
 			|	FOREIGN KEY '(' IDENTIFIER ')' REFERENCES IDENTIFIER '(' IDENTIFIER ')' // 建表时创建外键约束,只能建立1对1的映射; 多对多需要使用alter命令
 				{
-					printf("foreign\n");
+					printf("YACC: foreign\n");
 					Constraint tmp;
 					tmp.IDList.push_back($4.val.str);
 					tmp.IDList.push_back($7.val.str);
@@ -616,22 +645,22 @@ field		:	IDENTIFIER type
 // 长度都已经经过检查
 type		:	KW_INT
 				{
-					printf("type int\n");
+					printf("YACC: type int\n");
 					$$.val.type = DataType::INT;
 				}
 			|	DATE
 				{
-					printf("type data\n");
+					printf("YACC: type data\n");
 					$$.val.type = DataType::DATE;
 				}
 			|	FLOAT
 				{
-					printf("type float\n");
+					printf("YACC: type float\n");
 					$$.val.type = DataType::FLOAT;
 				}
 			|	CHAR '(' INT_LIT ')'
 				{
-					printf("char\n");
+					printf("YACC: char\n");
 					$$.val.type = DataType::CHAR;
 					int intVal = 0;
 					uchar code = Field::strToInt($3.val.str, intVal);
@@ -644,7 +673,7 @@ type		:	KW_INT
 				}
 			|	VARCHAR	'(' INT_LIT ')'
 				{
-					printf("varchar\n");
+					printf("YACC: varchar\n");
 					$$.val.type = DataType::VARCHAR;
 					int intVal = 0;
 					uchar code = Field::strToInt($3.val.str, intVal);
@@ -657,7 +686,7 @@ type		:	KW_INT
 				}
 			|	NUMERIC '(' INT_LIT ',' INT_LIT ')'
 				{
-					printf("numeric\n");
+					printf("YACC: numeric\n");
 					$$.val.type = DataType::NUMERIC;
 					int intVal = 0, intVal0 = 0;
 					uchar code = Field::strToInt($3.val.str, intVal), code0 = Field::strToInt($5.val.str, intVal0);
@@ -676,12 +705,12 @@ type		:	KW_INT
 // insert into {tablename} values(valueList), (valueList), (valueList) ...
 valueLists	:	'(' valueList ')'
 				{
-					printf("valueLists base\n");
+					printf("YACC: valueLists base\n");
 					$$.valLists.push_back($2.valList);
 				}
 			|	valueLists ',' '(' valueList ')'
 				{
-					printf("valueLists recur\n");
+					printf("YACC: valueLists recur\n");
 					$$.valLists = $$.valLists;
 					$$.valLists.push_back($4.valList);
 				}
@@ -689,12 +718,12 @@ valueLists	:	'(' valueList ')'
 
 valueList	:	value
 				{
-					printf("valueList base\n");
+					printf("YACC: valueList base\n");
 					$$.valList.push_back($1.val);
 				}
 			|	valueList ',' value
 				{
-					printf("valueList recur\n");
+					printf("YACC: valueList recur\n");
 					$$.valList = $1.valList;
 					$$.valList.push_back($1.val);
 				}
@@ -702,7 +731,7 @@ valueList	:	value
 
 value		:	INT_LIT
 				{
-					printf("int lit\n");
+					printf("YACC: int lit\n");
 					int intVal = 0;
 					ll llVal = 0;
 					uchar code = Field::strToInt($1.val.str, intVal);
@@ -724,7 +753,7 @@ value		:	INT_LIT
 				}
 			|	FLOAT_LIT
 				{
-					printf("float lit\n");
+					printf("YACC: float lit\n");
 					$$.val.type = DataType::FLOAT;
 					float floatVal = 0;
 					uchar code = Field::strToFloat($1.val.str, floatVal);
@@ -737,7 +766,7 @@ value		:	INT_LIT
 				}
 			|	DATE_LIT
 				{
-					printf("date lit\n");
+					printf("YACC: date lit\n");
 					$$.val.type = DataType::DATE;
 					int ym_sep = $1.val.str.find('-'), md_sep = $1.val.str.rfind('-');
 					int year = 0, month = 0, day = 0;
@@ -767,7 +796,7 @@ value		:	INT_LIT
 				}
 			| 	STRING_LIT
 				{
-					printf("string lit\n");
+					printf("YACC: string lit\n");
 					if($1.val.str.length() <= 255)
 						$$.val.type = DataType::CHAR;
 					else if($1.val.str.length() <= 65535)
@@ -779,11 +808,12 @@ value		:	INT_LIT
 				}
 			|	KW_NULL
 				{
-					printf("null lit\n");
+					printf("YACC: null lit\n");
 					$$.val.type = DataType::NONE; // use NONE to record null lit
 				}
 			| 	'-' value // minus: for float, int and bigint
 				{
+					printf("YACC: minus\n");
 					if($2.val.type == DataType::FLOAT){
 						*(float*)$2.val.bytes = -*(float*)$2.val.bytes;
 					}
@@ -802,19 +832,19 @@ value		:	INT_LIT
 
 whereClause :	whereClause AND whereUnit
 				{
-					printf("where recur\n");
+					printf("YACC: where recur\n");
 					$$.condList = $1.condList;
 					$$.condList.push_back($3.condList[0]);
 				}
 			|	whereUnit
 				{
-					printf("where base\n");
+					printf("YACC: where base\n");
 					$$.condList.push_back($1.condList[0]);
 				}
 
 whereUnit	:	col op expr
 				{
-					printf("if op\n");
+					printf("YACC: if op\n");
 					WhereInstr tmp;
 					tmp.column = $1.column;
 					tmp.isExprCol = $3.isExprCol;
@@ -827,7 +857,7 @@ whereUnit	:	col op expr
 				}
 			|	col IS KW_NULL
 				{
-					printf("if null\n");
+					printf("YACC: if null\n");
 					WhereInstr tmp;
 					tmp.column = $1.column;
 					tmp.cmp = Comparator::Eq;		   // equals
@@ -836,7 +866,7 @@ whereUnit	:	col op expr
 				}
 			|	col IS NOT KW_NULL
 				{
-					printf("if not null\n");
+					printf("YACC: if not null\n");
 					WhereInstr tmp;
 					tmp.column = $1.column;
 					tmp.cmp = Comparator::NE;		   // not equals
@@ -847,7 +877,7 @@ whereUnit	:	col op expr
 
 col			:	IDENTIFIER
 				{
-					printf("simple col\n");
+					printf("YACC: simple col\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){
 						Global::newError($1.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
 						YYABORT;
@@ -856,7 +886,7 @@ col			:	IDENTIFIER
 				}
 			|	IDENTIFIER '.' IDENTIFIER
 				{
-					printf("compl col\n");
+					printf("YACC: compl col\n");
 					if($1.val.str.length() > MAX_TABLE_NAME_LEN){
 						Global::newError($1.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
 						YYABORT;
@@ -872,45 +902,45 @@ col			:	IDENTIFIER
 
 op			:	GE
 				{
-					printf("GE\n");
+					printf("YACC: GE\n");
 					$$.cmp = Comparator::GtEq;
 				}
 			|	LE
 				{
-					printf("LE\n");
+					printf("YACC: LE\n");
 					$$.cmp = Comparator::LtEq;
 				}
 			|	NE
 				{
-					printf("NE\n");
+					printf("YACC: NE\n");
 					$$.cmp = Comparator::NE;
 				}
 			|	'>'
 				{
-					printf("Gt\n");
+					printf("YACC: Gt\n");
 					$$.cmp = Comparator::Gt;
 				}
 			|	'<'
 				{
-					printf("Lt\n");
+					printf("YACC: Lt\n");
 					$$.cmp = Comparator::Lt;
 				}
 			|	'='
 				{
-					printf("eq\n");
+					printf("YACC: eq\n");
 					$$.cmp = Comparator::Eq;
 				}
 			;
 
 expr		:	value
 				{
-					printf("value expr\n");
+					printf("YACC: value expr\n");
 					$$.isExprCol = false;
 					$$.val = $1.val;
 				}
 			|	col
 				{
-					printf("col expr\n");
+					printf("YACC: col expr\n");
 					$$.isExprCol = true;
 					$$.column = $1.column;
 				}
@@ -918,12 +948,12 @@ expr		:	value
 
 setClause	:	IDENTIFIER '=' value
 				{
-					printf("set\n");
+					printf("YACC: set\n");
 					$$.setList.push_back(SetInstr($1.val.str, $3.val));
 				}
 			|	setClause ',' IDENTIFIER '=' value
 				{
-					printf("multiple set\n");
+					printf("YACC: multiple set\n");
 					$$.setList = $1.setList;
 					$$.setList.push_back(SetInstr($3.val.str, $5.val));
 				}
@@ -931,24 +961,24 @@ setClause	:	IDENTIFIER '=' value
 
 selector	:	'*'
 				{
-					printf("select *\n");
+					printf("YACC: select *\n");
 					$$.selectAll = true;
 				}
 			|	colList
 				{
-					printf("select colList\n");
+					printf("YACC: select colList\n");
 					$$.colList = $1.colList;
 				}
 			;
 
 colList		:	col
 				{
-					printf("colList base\n");
+					printf("YACC: colList base\n");
 					$$.colList.push_back($1.column);
 				}
 			| 	colList ',' col
 				{
-					printf("colList recur\n");
+					printf("YACC: colList recur\n");
 					$$.colList = $1.colList;
 					$$.colList.push_back($3.column);
 				}
@@ -956,12 +986,12 @@ colList		:	col
 
 IdList		:	IDENTIFIER
 				{
-					printf("IdList base\n");
+					printf("YACC: IdList base\n");
 					$$.IDList.push_back($1.val.str);
 				}
 			|	IdList ',' IDENTIFIER
 				{
-					printf("IdList recur\n");
+					printf("YACC: IdList recur\n");
 					$$.IDList = $1.IDList;
 					$$.IDList.push_back($3.val.str);
 				}

@@ -31,6 +31,7 @@ class Table{
     int fkSlaveCount = 0;
     int idxCount = 0;
     bool headerDirty = false;
+    uint offsets[MAX_COL_NUM] = {0};
 
     /**
      * 用于跟踪tmpBuf和tmpIdx,以便针对性地释放缓存
@@ -178,6 +179,7 @@ class Table{
             header->FromString(headerBuf);
             strncpy(this->tablename, tableName, strnlen(tableName, MAX_TABLE_NAME_LEN));
             CalcColFkIdxCount();
+            DataType::calcOffsets(header->attrType, header->attrLenth, colCount, offsets);
             this->db = db;
             this->tableID = tableID;
         }
@@ -484,6 +486,14 @@ class Table{
         */
         const Header* GetHeader(){
             return header;
+        }
+
+        int ColNum(){
+            return colCount;
+        }
+
+        int ColOffset(int i){
+            return offsets[i];
         }
 
         Scanner* GetScanner(bool (*demand)(const Record& record));

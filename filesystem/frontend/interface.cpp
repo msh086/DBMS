@@ -6,6 +6,7 @@
 using namespace std;
 
 extern int yyparse();
+extern void yyrestart(FILE* new_file);
 
 int main(){
     DBMS* dbms = DBMS::Instance();
@@ -23,7 +24,7 @@ int main(){
         fputs(buf, tmp);
         fflush(tmp);
         fseek(tmp, prevPos, SEEK_SET);
-        // printf("before parsing, now at %ld\n", ftell(tmp));
+        // fseek(tmp, 0, SEEK_SET);
 	    int res = yyparse();						//使yacc开始读取输入和解析，它会调用lex的yylex()读取记号
         // parsing errors
         if(!Global::errors.empty()){
@@ -31,9 +32,16 @@ int main(){
                 printf("syntax error at %d: %s\n", it->pos, it->msg.data());
             Global::errors.clear();
         }
-        // printf("parse result:%d, now at %ld\n\n", res, ftell(tmp));
+        if(Global::exitSign){
+            Global::dbms->Close();
+            return 0;
+        }
+        Global::pos = 0;
         fseek(tmp, 0, SEEK_END);
+        // printf("old pos: %ld", prevPos);
         prevPos = ftell(tmp);
+        yyrestart(tmp);
+        // printf("  new pos: %ld\n", prevPos);
     }
     fclose(tmp);
 	return 0;
