@@ -342,8 +342,8 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         } // end recursion
         // split the root node
         right->parent = node->parent = root = CreateTreeNode(nullptr, BplusTreeNode::Internal); // the new root
-        nodes.pop_back(); // pop out the new root
-        nodes.push_back(node); // node is not the root anymore, add it to the memory manager
+        // nodes.pop_back(); // pop out the new root
+        // nodes.push_back(node); // node is not the root anymore, add it to the memory manager
         header->rootPage = root->page;
         UpdateRoot();
         // construct root
@@ -380,6 +380,18 @@ bool BplusTree::Search(const uchar* data, const RID& rid){
         }
     }while(MoveNext(node, pos, Comparator::Eq));
     return found;
+}
+
+bool BplusTree::ValueSearch(const uchar* data, RID* rid){
+    BplusTreeNode* node = nullptr;
+    int pos = -1;
+    _search(data, node, pos);
+    if(pos == node->size) // no match is found
+        return false;
+    uint* curRID = (uint*)(node->KeynPtrAt(pos) + header->recordLenth);
+    rid->PageNum = curRID[0];
+    rid->SlotNum = curRID[1];
+    return true;
 }
 
 void BplusTree::Remove(const uchar* data, const RID& rid){
@@ -487,7 +499,7 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
             if(node->parentPage == 0){ // if this is the root node
                 if(node->size == 1){ // one key remaining, tree height decreases by 1
                     root = mergedNode;
-                    reloadRoot = true;
+                    // reloadRoot = true;
                     header->rootPage = mergedNode->page;
                     UpdateRoot();
                     mergedNode->parentPage = 0;

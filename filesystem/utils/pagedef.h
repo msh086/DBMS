@@ -96,6 +96,7 @@
 #define DB_RESERVED_TABLE_NAME "ALL_TB"
 #define IDX_RESERVED_TABLE_NAME "BPTREE"
 #define VARCHAR_RESERVED_TABLE_NAME "VARCHAR"
+#define PRIMARY_RESERVED_IDX_NAME "PRMIARY_INDEX"
 
 #define DEBUG // If this macro is set, debug methods are available
 

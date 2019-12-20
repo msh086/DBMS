@@ -39,6 +39,7 @@ int Table::CreateIndexOn(uint cols, const char* idxName){
     delete tree;
     idxCount++;
     headerDirty = true;
+    return 0;
 }
 
 bool Table::RemoveIndex(const char* idxName){
@@ -66,6 +67,7 @@ bool Table::RemoveIndex(const char* idxName){
     // sync
     idxCount--;
     headerDirty = true;
+    return true;
 }
 
 void Table::Print(){
@@ -153,6 +155,7 @@ void Table::Print(){
         table.push_back(tmp);
     }
     Printer::PrintTable(table, 4, i + 1);
+    // primary key
     if(!header->primaryKeyMask)
         printf("Primary key: NONE\n");
     else{
@@ -168,5 +171,39 @@ void Table::Print(){
         }
         printf(")\n");
     }
-    // TODO: foreign / index
+    // foreign key
+    Scanner* tables = db->ShowTables();
+    tmpRec.FreeMemory();
+    char tableNameBuf[MAX_TABLE_NAME_LEN + 1] = "";
+    for(int i = 0; i < fkMasterCount; i++){
+        bool found = false;
+        while(tables->NextRecord(&tmpRec)){
+            if(identical((char*)tmpRec.GetData(), (char*)header->attrName[header->fkMaster[i]], MAX_TABLE_NAME_LEN)){
+                found = true;
+                break;
+            }
+            else
+                tmpRec.FreeMemory();
+        }
+        assert(found);
+        memcpy(tableNameBuf, tmpRec.GetData(), MAX_TABLE_NAME_LEN);
+        Table* master = db->OpenTable(tableNameBuf);
+        assert(master);
+
+        printf("Foreign key constraint %.*s", MAX_CONSTRAINT_NAME_LEN, header->constraintName[i]);
+        for(uint j = 0, colMask = header->slaveKeyID[i]; colMask != 0; j++, colMask <<= 1){
+            if(colMask & 0x80000000)
+                printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[j]);
+        }
+        printf(" references");
+        for(uint j = 0, colMask = header->masterKeyID[i]; colMask != 0; j++, colMask <<= 1){
+            if(colMask & 0x80000000)
+                printf(" %.*s", MAX_ATTRI_NAME_LEN, master->header->attrName[j]);
+        }
+        putchar('\n');
+        db->CloseTable(tableNameBuf);
+        tmpRec.FreeMemory();
+        tables->Reset();
+    }
+    // TODO: index
 }

@@ -327,6 +327,8 @@ class DataType{
             day = readBits(src, byte, offset, 5);
         }
 
+        // 单字段比较时,left和right都不包括null word
+
         /**
          * 当left,right都为null时,返回true
          * 当一方为null时,认为null为最小值
@@ -480,8 +482,12 @@ class DataType{
         // 复合属性比较
 
         static bool noLessThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum){
+            // 跳过null word
+            uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
+            left += 4;
+            right += 4;
             for(int i = 0; i < colNum; i++){
-                if(!noLessThan(left, right, types[i], lengths[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
+                if(!noLessThan(left, right, types[i], lengths[i], getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
                 left += length;
@@ -492,8 +498,12 @@ class DataType{
 
         // why not use noLessThanArr && !eqArr ? Because it is not efficient
         static bool greaterThanArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum){
+            // 跳过null word
+            uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
+            left += 4;
+            right += 4;
             for(int i = 0; i < colNum; i++){
-                if(!greaterThan(left, right, types[i], lengths[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
+                if(!greaterThan(left, right, types[i], lengths[i], getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
                 left += length;
@@ -503,8 +513,12 @@ class DataType{
         }
 
         static bool eqArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum){
+            // 跳过null word
+            uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
+            left += 4;
+            right += 4;
             for(int i = 0; i < colNum; i++){
-                if(!eq(left, right, types[i], lengths[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
+                if(!eq(left, right, types[i], lengths[i], getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
                 left += length;
@@ -516,7 +530,7 @@ class DataType{
         // 可指定比较运算符
 
         /**
-         * return if left cmp right is true. Length is the pure length excluding the null byte
+         * return if left cmp right is true. Length is the pure length excluding the null word
         */
         static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, uchar cmp, bool nullLeft, bool nullRight){
             switch (cmp)
@@ -545,8 +559,12 @@ class DataType{
          * 比较两组值，left cmp right == true iff left[i] cmp right[i] == true, i = 0, 1, ..., colNum - 1
         */
         static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar cmp){
+            // 跳过null word
+            uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
+            left += 4;
+            right += 4;
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], cmp, getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
+                if(!compare(left, right, types[i], lengths[i], cmp, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
                 left += length;
@@ -559,8 +577,12 @@ class DataType{
          * 比较两组值，允许为每个字段指定比较方法，left cmp right == true iff left[i] cmp[i] right[i] == true, i = 0, 1, ..., colNum - 1
         */
         static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar* cmp){
+            // 跳过null word
+            uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
+            left += 4;
+            right += 4;
             for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], cmp[i], getBitFromLeft(*(uint*)left, i), getBitFromLeft(*(uint*)right, i)))
+                if(!compare(left, right, types[i], lengths[i], cmp[i], getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
                 left += length;

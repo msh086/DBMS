@@ -183,20 +183,20 @@ class Database{
             return false;
         }
 
-        bool CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
+        uchar CreateTable(const char* tablename, Header* header, const uchar* defaultRecord){
             if(TableExists(tablename))
-                return false;
+                return TB_ID_NONE;
             //TODO : check on header validity?
             bool createret = fm->createFile(getPath(tablename));
             if(!createret){
                 printf("In Database::CreateTable, cannot create file\n");
-                return false;
+                return TB_ID_NONE;
             }
             int fid;
             bool openret = fm->openFile(getPath(tablename), fid);
             if(!openret){
                 printf("In Database::CreateTable, cannot open file\n");
-                return false;
+                return TB_ID_NONE;
             }
             uchar* buffer = new uchar[PAGE_SIZE]{};
             //handle default record, which always exists not matter the value of defaultKeyMask
@@ -226,7 +226,7 @@ class Database{
             uchar data[MAX_TABLE_NAME_LEN] = {0};
             memcpy(data, tablename, strlen(tablename));
             info->InsertRecord(data, rid);
-            return true;
+            return rid->GetSlotNum() - 1; // ? the same hazard as in OpenTable
         }
 
         /**

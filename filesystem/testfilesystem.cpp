@@ -34,92 +34,61 @@
 
 using namespace std;
 int main() {
-	DBMS* dbms = DBMS::Instance();
-	dbms->Init();
-	// // TODO
-	// ? show databases
-	// Scanner* scanner = dbms->ShowDatabases();
-	// Record rec;
-	// printf("All databases\n");
-	// while(scanner->NextRecord(&rec)){
-	// 	printf("%s\n", rec.GetData());
-	// 	rec.FreeMemory();
-	// }
-	// scanner->Reset();
-	// ? create database
-	dbms->CreateDatabase("TestDB");
-	// ? use database
-	Database* db = dbms->UseDatabase("TestDB");
-	// ? create table
-	Header header;
-	header.recordLenth = 10;
-	db->CreateTable("TestTB", &header, nullptr);
-	// ? show tables
-	// Scanner* tables = db->ShowTables();
-	// while(tables->NextRecord(&rec)){
-	// 	printf("%s\n", rec.GetData());
-	// 	rec.FreeMemory();
-	// }
-	// tables->Reset();
+	DBMS::Instance()->Init();
+	DBMS::Instance()->CreateDatabase("db");
+	Database* db = DBMS::Instance()->UseDatabase("db");
+	Header* header = new Header();
+	header->recordLenth = PAGE_SIZE;
+	header->slotNum = (uint)PAGE_SIZE / header->recordLenth;
+	memcpy(header->attrName[0], "name", 5);
+	db->CreateTable("index test", header, nullptr);
+	Table* tb = db->OpenTable("index test");
 
-	dbms->Close();
+	IndexHeader * ih = new IndexHeader();
+	ih->attrType[0] = DataType::INT;
+	BplusTree* tree = new BplusTree(tb, ih);
+	RID rid(5, 6);
 
-	// printf("%d\n", (uint(-1)) >> 31);
-	// int mkdirRet = mkdir("folder", S_IRWXU | S_IRWXG | S_IRWXO);
-	// int rmdirRet = rmdir("folder");
-	// printf("mkDir ret: %d, rmDir ret: %d\n", mkdirRet, rmdirRet);
-	// FileManager::Instance()->createFile("./folder/file.type");
-	return 0;
-
-
-	// Database* db = new Database("db");
-	// Header* header = new Header();
-	// header->recordLenth = PAGE_SIZE;
-	// header->slotNum = (uint)PAGE_SIZE / header->recordLenth;
-	// memcpy(header->attrName[0], "name", 5);
-	// db->CreateTable("index test", header, nullptr);
-	// Table* tb = db->OpenTable("index test");
-
-	// IndexHeader * ih = new IndexHeader();
-	// ih->attrType[0] = DataType::INT;
-	// BplusTree* tree = new BplusTree(tb, ih);
-	// RID rid(5, 6);
-
-	// int eleCount = 30;
-	// std::vector<int> vec;
-	// for(int i = 0; i < eleCount; i++)
-	// 	vec.push_back(i);
-	// srand((ull)time(0));
-	// std::random_shuffle(vec.begin(), vec.end());
-	// printf("Insertion sequence\n");
-	// for(int i = 0; i < eleCount; i++)
-	// 	printf("%d ", vec.at(i));
-	// printf("\n");
-	// for(int i = 0; i < eleCount; i++){
-	// 	tree->Insert((uchar*)&vec.at(i), rid);
-	// 	// tree->DebugPrint();
-	// 	// printf("\n");
-	// }
+	int eleCount = 20000; // internal cap = 682, external cap = 511. About 30 full nodes
+	std::vector<int> vec;
+	for(int i = 0; i < eleCount; i++)
+		vec.push_back(i);
+	srand((ull)time(0));
+	std::random_shuffle(vec.begin(), vec.end());
+	printf("Insertion sequence\n");
+	for(int i = 0; i < eleCount; i++)
+		printf("%d ", vec.at(i));
+	printf("\n");
+	uint buf[8] = {0};
+	for(int i = 0; i < eleCount; i++){
+		buf[1] = vec.at(i);
+		tree->SafeInsert((uchar*)buf, rid);
+		// tree->DebugPrint();
+		// printf("\n");
+	}
 	// tree->DebugPrint();
 	// printf("\n");
-	// printf("Start deletion\n");
-	// std::random_shuffle(vec.begin(), vec.end());
-	// printf("Deletion sequence:\n");
-	// for(int i = 0; i < eleCount; i++)
-	// 	printf("%d ", vec.at(i));
-	// printf("\n");
-	// for(int i = 0; i < eleCount; i++){
-	// 	tree->Remove((uchar*)&vec.at(i), rid);
-	// 	tree->DebugPrint();
-	// 	printf("\n");
-	// }
+	printf("Start deletion\n");
+	std::random_shuffle(vec.begin(), vec.end());
+	printf("Deletion sequence:\n");
+	for(int i = 0; i < eleCount; i++)
+		printf("%d ", vec.at(i));
+	printf("\n");
+	for(int i = 0; i < eleCount; i++){
+		tree->SafeRemove((uchar*)&vec.at(i), rid);
+		if(i > eleCount - 5){ // print the last 5 removals...
+			tree->DebugPrint();
+			printf("\n");
+		}
+	}
 
-	// int bufInt = 0;
-	// uchar* dst = (uchar*)&bufInt;
-	// for(int i = 0; i < 13; i++, bufInt++)
-	// 	tree->Insert(dst, rid);
-	// db->CloseTable("index test");
-	// db->DeleteTable("index test");
+	int bufInt = 0;
+	uchar* dst = (uchar*)&bufInt;
+	for(int i = 0; i < 13; i++, bufInt++)
+		tree->Insert(dst, rid);
+	db->CloseTable("index test");
+	db->DeleteTable("index test");
+	return 0;
 
 	// uchar dst[17] = {0}; // bin dst
 	// uchar digits[38] = {0};

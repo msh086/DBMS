@@ -35,14 +35,8 @@ class BplusTreeNode{
             data = bpm->reusePage(fid, page, bufIdx, data);
         }
 
-        // whether this node has already been released
-        bool isActive = true;
-
         // write back dirty node to storage
         void writeBack(){
-            if(!isActive)
-                return;
-            isActive = false;
             int realFid, realPid;
             bpm->getKey(bufIdx, realFid, realPid);
             if(realFid == fid && realFid == page)

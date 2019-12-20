@@ -42,12 +42,12 @@ class BplusTree{
         // leafMinKey = ceiling(leafCap / 2);
         uint internalMinKey, leafMinKey;
 
-        // helper variable
-        // when set to true, indicates that this->root need to be reloaded
-        bool reloadRoot = false;
+        //// helper variable
+        //// when set to true, indicates that this->root need to be reloaded
+        // bool reloadRoot = false;
 
         void CalcKeyLength(){
-            header->recordLenth = 0;
+            header->recordLenth = 4; // null word
             colNum = 0;
             for(int i = 0; i < MAX_COL_NUM; i++){
                 if(header->attrType[i] != DataType::NONE){
@@ -127,13 +127,13 @@ class BplusTree{
             
             // ! Debug only
             // 2-4 tree
-            header->internalCap = 5;
-            header->leafCap = 4;
+            // header->internalCap = 5;
+            // header->leafCap = 4;
             // ! end
             
             // root init
             root = CreateTreeNode(nullptr, BplusTreeNode::Leaf);
-            nodes.pop_back(); // pop the root node from stack
+            // nodes.pop_back(); // pop the root node from stack
 
             header->rootPage = root->page;
             uchar* tmp = new uchar[PAGE_SIZE]{0};
@@ -159,7 +159,7 @@ class BplusTree{
             internalMinKey = (header->internalCap - 1) >> 1;
             leafMinKey = (header->leafCap + 1) >> 1;
             root = GetTreeNode(nullptr, header->rootPage);
-            nodes.pop_back();
+            // nodes.pop_back();
         }
 
         void UpdateRecordNum(){
@@ -207,6 +207,7 @@ class BplusTree{
                 delete node;
             }
             nodes.clear();
+            root = GetTreeNode(nullptr, header->rootPage);
         }
 
         // remove all orphaned nodes from table
@@ -231,11 +232,11 @@ class BplusTree{
         BplusTreeNode* root = nullptr;
         int colNum = 0;
         void Insert(const uchar* data, const RID& rid);
-        bool Search(const uchar* data, const RID& rid);
+        bool Search(const uchar* data, const RID& rid); // returns true iff both data and rid match
         void Remove(const uchar* data, const RID& rid);
+        bool ValueSearch(const uchar* data, RID* rid); // returns true iff data matches, store found RID in rid
         
         // Memory-safe methods for Insert, Search and Remove
-
         void SafeInsert(const uchar* data, const RID& rid){
             Insert(data, rid);
             ClearAndWriteBackOpenedNodes();
@@ -245,15 +246,22 @@ class BplusTree{
             Remove(data, rid);
             ClearAndWriteBackOpenedNodes();
             RemoveNodes();
-            if(reloadRoot){ // root has been deleted with other opened nodes
-                root = GetTreeNode(nullptr, header->rootPage);
-                reloadRoot = false;
-            }
+            // if(reloadRoot){ // root has been deleted with other opened nodes
+            //     root = GetTreeNode(nullptr, header->rootPage);
+            //     reloadRoot = false;
+            // }
         }
 
         bool SafeSearch(const uchar* data, const RID& rid){
             bool ret = Search(data, rid);
             ClearAndWriteBackOpenedNodes();
+            return ret;
+        }
+
+        bool SafeValueSearch(const uchar* data, RID* rid){
+            bool ret = ValueSearch(data, rid);
+            ClearAndWriteBackOpenedNodes();
+            return ret;
         }
 
         uint TreeHeaderPage(){
@@ -321,6 +329,10 @@ class BplusTree{
             }
         };
 #ifdef DEBUG
+        // skip null word and get the real value
+        int extractInt(void* src){
+            return *(int*)((char*)src + 4);
+        }
         // print the tree's info
         void DebugPrint(){
             printf("index info:\n");
@@ -349,11 +361,11 @@ class BplusTree{
                     bool hasPrev = buf[head].hasLeftBound;
                     uint prevVal = buf[head].leftBound;
                     for(int i = 0; i < node->size; i++){
-                        if(hasPrev && prevVal > *node->KeyAt(i))
+                        if(hasPrev && prevVal > extractInt(node->KeyAt(i)))
                             printf("*****Value Error*****\n");
                         hasPrev = true;
-                        prevVal = *node->KeyAt(i);
-                        printf("%u ", *node->KeyAt(i));
+                        prevVal = extractInt(node->KeyAt(i));
+                        printf("%u ", extractInt(node->KeyAt(i)));
                     }
                     if(buf[head].hasRightBound && prevVal >= buf[head].rightBound)
                         printf("*****Value Error*****\n");
@@ -368,7 +380,7 @@ class BplusTree{
                         }
                         else{
                             hasLeft = true;
-                            leftBound = *node->KeyAt(i - 1);
+                            leftBound = extractInt(node->KeyAt(i - 1));
                         }
                         if(i == node->size){
                             hasRight = buf[head].hasRightBound;
@@ -376,7 +388,7 @@ class BplusTree{
                         }
                         else{
                             hasRight = true;
-                            rightBound = *node->KeyAt(i);
+                            rightBound = extractInt(node->KeyAt(i));
                         }
                         buf[pos++].Reset(*node->NodePtrAt(i), buf[head].page, i, hasLeft, hasRight, leftBound, rightBound, false, 0);
                         if(pos == header->recordNum + 1)
@@ -388,12 +400,12 @@ class BplusTree{
                     bool hasPrev = buf[head].hasLeftBound;
                     int prevVal = buf[head].leftBound;
                     for(int i = 0; i < node->size; i++){
-                        if(hasPrev && prevVal > *(uint*)node->KeynPtrAt(i))
+                        if(hasPrev && prevVal > extractInt(node->KeynPtrAt(i)))
                             printf("*****Value Error In Leaf*****\n");
                         hasPrev = true;
-                        prevVal = *(uint*)node->KeynPtrAt(i);
-                        uchar* tmpPtr = node->KeynPtrAt(i);
-                        printf("(%u, %u, %u)\n", *tmpPtr, *(tmpPtr + header->recordLenth), *(tmpPtr + 4 + header->recordLenth));
+                        prevVal = extractInt(node->KeynPtrAt(i));
+                        uchar* tmpPtr = node->KeynPtrAt(i); // extract manually later
+                        printf("(%u, %u, %u)\n", *(uint*)(tmpPtr + 4), *(uint*)(tmpPtr + header->recordLenth), *(uint*)(tmpPtr + 4 + header->recordLenth));
                     }
                     if(buf[head].hasRightBound && prevVal >= buf[head].rightBound)
                         printf("*****Value Error In Leaf*****\n");
@@ -403,8 +415,8 @@ class BplusTree{
                 if(head == header->recordNum + 1)
                     head = 0;
             }
-            delete root;
-            root = GetTreeNode(nullptr, header->rootPage);
+            this->ClearAndWriteBackOpenedNodes();
+            // root = GetTreeNode(nullptr, header->rootPage);
         }
 #endif
 };

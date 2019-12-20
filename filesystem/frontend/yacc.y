@@ -287,7 +287,6 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								header.masterKeyID[fkIndex] = 1 << (31 - masterColIndex);
 								header.slaveKeyID[fkIndex] = 1 << (31 - getNameIndex(it->IDList[0].data()));
 								fkIndex++;
-								// TODO: update the master table's fk info ?
 								Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // never forget to close a table after use
 							}
 						}
@@ -320,9 +319,26 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							}
 							dftBufPos += fieldLength;
 						}
-						// TODO: create index for primary key
-						if(!Global::dbms->CurrentDatabase()->CreateTable(T3.val.str.data(), &header, dftRec))
+						uchar tableIdx = Global::dbms->CurrentDatabase()->CreateTable(T3.val.str.data(), &header, dftRec);
+						if(tableIdx == TB_ID_NONE)
 							printf("Unknown error in creating table\n");
+						else{
+							// update fk masters' info
+							for(auto it = T5.constraintList.begin(); it != T5.constraintList.end(); it++){
+								if(it->isFK){
+									Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1].data());
+									master->AddFKSlave(tableIdx);
+									Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data());
+									// too many fkslaves?
+									// TODO: record fkslaves as (table id, times), which requires MAX_TB_NUM * 2 bytes and make fkSlaves overflow almost impossible
+								}
+							}
+							// create index on primary keys
+							Table* newTable = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+							int idxRet = newTable->CreateIndexOn(newTable->GetHeader()->primaryKeyMask, PRIMARY_RESERVED_IDX_NAME);
+							assert(idxRet == 0);
+							Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+						}
 						return true;
 					};
 				}
@@ -372,7 +388,6 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							Global::newError(T2.pos, Global::format("No table named %s", T2.val.str.data()));
 							return false;
 						}
-						// TODO: describe table
 						table->Print();
 						Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 					};
@@ -447,6 +462,12 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							TT.valList.clear();
 						}
 						// TODO: check primary / foreign key constraints
+						if(table->GetHeader()->primaryKeyMask){
+							uint idxPage = table->GetPrimaryIndexPage();
+							assert(idxPage);
+							BplusTree* primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
+							
+						}
 						// TODO: maintain indexes
 						// now there is no error in input, start insertion
 						for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every valList, build a record

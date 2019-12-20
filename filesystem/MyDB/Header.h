@@ -17,7 +17,7 @@ class Header : public BaseHeader{
         // uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
         // uint nullMask = 0;
         uint primaryKeyMask = 0; // A cluster primary key can include multiple columns
-        uint foreignKeyMask = 0;
+        uint foreignKeyMask = 0; // ! unused. Use fkMaster, masterKeyID, slaveKeyID, constraintName instead
         uint defaultKeyMask = 0; // The template record for `default` is always stored as (1, 0) and is invisible & inchangable by query
         // For attrLenth, if we store varchar locally, each element will take a uint
         // If we store varchar as a pointer to their real location, each element can be a char

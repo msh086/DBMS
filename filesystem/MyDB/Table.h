@@ -484,6 +484,14 @@ class Table{
         */
         bool RemoveIndex(const char* idxName);
 
+        uint GetPrimaryIndexPage(){
+            for(int i = 0; i < idxCount; i++){
+                if(identical((char*)header->indexName[i], PRIMARY_RESERVED_IDX_NAME, MAX_INDEX_NAME_LEN))
+                    return header->bpTreePage[i];
+            }
+            return 0;
+        }
+
         int FileID(){
             return fid;
         }
