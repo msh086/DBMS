@@ -6,6 +6,7 @@
 #include <iostream>
 #include <cstring>
 #include <string>
+#include <cassert>
 using namespace std;
 
 class DataType{
@@ -327,13 +328,15 @@ class DataType{
             day = readBits(src, byte, offset, 5);
         }
 
+        static int cmpLongVarchar(uint lpage, uint lslot, uint rpage, uint rslot);
+
         // 单字段比较时,left和right都不包括null word
 
         /**
          * 当left,right都为null时,返回true
          * 当一方为null时,认为null为最小值
         */
-        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
             if(type == NONE){
                 std::printf("Error: NONE type is not comparable");
                 return false;
@@ -358,7 +361,7 @@ class DataType{
                 break;
             }
             case CHAR:{ // 0-255 bytes
-                return strncmp((const char*)datal, (const char*)datar, length);
+                return strncmp((const char*)datal, (const char*)datar, length) >= 0;
                 break;
             }
             case NUMERIC:{ 
@@ -418,14 +421,33 @@ class DataType{
             case INT: // 4 bytes as it is in cpp
                 return *(int*)(datal) >= *(int*)datar;
                 break;
-            case VARCHAR: // TODO
+            case VARCHAR:
+                if(length <= 255)
+                    return strncmp((const char*)datal, (const char*)datar, length) >= 0;
+                else{
+                    if(!leftConstant && !rightConstant) // both are rid
+                        return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) >= 0;
+                    else{
+                        uchar buf[length] = {0};
+                        if(leftConstant){
+                            ushort len;
+                            LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
+                            return strncmp((char*)datal, (char*)buf, length) >= 0;
+                        }
+                        else{ // ? We assume that there can be no more than 1 constant in left and right
+                            ushort len;
+                            LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
+                            return strncmp((char*)buf, (char*)datar, length) >= 0;
+                        }
+                    }
+                }
                 break;
             default:
                 break;
             }
         }
 
-        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
+        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
             const uchar* datal = left, *datar = right;
             if(nullLeft && nullRight)
                 return true;
@@ -445,14 +467,29 @@ class DataType{
                 case CHAR:
                     return strncmp((char*)datal, (char*)datar, length) == 0;
                     break;
-                case VARCHAR:
+                case VARCHAR:{
                     if(length <= 255){
                         return strncmp((char*)datal, (char*)datar, length) == 0;
                     }
-                    else{ // TODO: index on long varchar
-
+                    else{
+                        if(!leftConstant && !rightConstant) // both are rid
+                        return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) == 0;
+                        else{
+                            uchar buf[length] = {0};
+                            if(leftConstant){
+                                ushort len;
+                                LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
+                                return strncmp((char*)datal, (char*)buf, length) == 0;
+                            }
+                            else{ // ? We assume that there can be no more than 1 constant in left and right
+                                ushort len;
+                                LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
+                                return strncmp((char*)buf, (char*)datar, length) == 0;
+                            }
+                        }
                     }
                     break;
+                }
                 case NUMERIC:{
                     int length = lengthNumberic(length >> 8);
                     return strncmp((char*)datal, (char*)datar, length) == 0;
@@ -467,16 +504,16 @@ class DataType{
             }
         }
 
-        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
-            return noLessThan(left, right, type, length, nullLeft, nullRight) && !eq(left, right, type, length, nullLeft, nullRight);
+        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            return noLessThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant) && !eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
         }
 
-        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
-            return greaterThan(right, left, type, length, nullRight, nullLeft);
+        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            return greaterThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
         }
 
-        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight){
-            return noLessThan(right, left, type, length, nullRight, nullLeft);
+        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            return noLessThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
         }
 
         // 复合属性比较
@@ -532,23 +569,23 @@ class DataType{
         /**
          * return if left cmp right is true. Length is the pure length excluding the null word
         */
-        static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, uchar cmp, bool nullLeft, bool nullRight){
+        static bool compare(const uchar* left, const uchar* right, uchar type, ushort length, uchar cmp, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
             switch (cmp)
             {
             case Comparator::Any:
                 return true;
             case Comparator::Eq:
-                return eq(left, right, type, length, nullLeft, nullRight);
+                return eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             case Comparator::Gt:
-                return greaterThan(left, right, type, length, nullLeft, nullRight);
+                return greaterThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             case Comparator::GtEq:
-                return noLessThan(left, right, type, length, nullLeft, nullRight);
+                return noLessThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             case Comparator::Lt:
-                return lessThan(left, right, type, length, nullLeft, nullRight);
+                return lessThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             case Comparator::LtEq:
-                return noGreaterThan(left, right, type, length, nullLeft, nullRight);
+                return noGreaterThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             case Comparator::NE:
-                return !eq(left, right, type, length, nullLeft, nullRight);
+                return !eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             default:
                 std::printf("cmp doesn't match any strategy defined in Comparator.h\n");
                 return false;
@@ -557,6 +594,7 @@ class DataType{
 
         /**
          * 比较两组值，left cmp right == true iff left[i] cmp right[i] == true, i = 0, 1, ..., colNum - 1
+         * NOTE: 在B+树中使用
         */
         static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar cmp){
             // 跳过null word
@@ -575,8 +613,10 @@ class DataType{
 
         /**
          * 比较两组值，允许为每个字段指定比较方法，left cmp right == true iff left[i] cmp[i] right[i] == true, i = 0, 1, ..., colNum - 1
+         * NOTE: 在select语句中使用
+         * ? leftConstant和rightConstant表示left和right是否是常量,当置为true时,从其中读取long varchar类型的字段时,不再通过RID,而直接从内存中读取
         */
-        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar* cmp){
+        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar* cmp, bool leftConstant = false, bool rightConstant = false){
             // 跳过null word
             uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
             left += 4;
@@ -585,8 +625,8 @@ class DataType{
                 if(!compare(left, right, types[i], lengths[i], cmp[i], getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
-                left += length;
-                right += length;
+                left += (leftConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                right += (rightConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
             }
             return true;
         }
@@ -608,6 +648,203 @@ class DataType{
                 dst[i] = offset;
                 offset += lengthOf(types[i], lengths[i]);
             }
+        }
+
+        const static uchar DateFamily = 0, StringFamily = 1, RealFamily = 2;
+
+        static uchar GetFamily(uchar type){
+            if(type == DATE)
+                return DateFamily;
+            if(type == CHAR || type == VARCHAR)
+                return StringFamily;
+            return RealFamily; // FLOAT and NUMERIC
+        }
+
+        static bool Comparable(uchar srcType, uchar dstType){
+            return GetFamily(srcType) == GetFamily(dstType);
+        }
+
+        static void LoadLongVarchar(uint page, uint slot, uchar* dst, ushort& len);
+
+        /**
+         * 比较两个同一family的值
+        */
+        static bool CompareFamily(uchar leftType, uchar rightType, const uchar* left, const uchar* right, ushort leftLength, ushort rightLength, bool nullLeft, bool nullRight, uchar cmp){
+            uchar familyLeft = GetFamily(leftType), familyRight = GetFamily(rightType);
+            assert(familyLeft == familyRight);
+            if(nullLeft || nullRight){ // 当一方为null时,比较结果仅取决于谁是null以及cmp,与数据类型和具体数值无关
+                return compare(left, right, INT, 0, cmp, nullLeft, nullRight);
+            }
+            switch (familyLeft)
+            {
+                case DateFamily:{
+                    return compare(left, right, DATE, 3, cmp, false, false);
+                }
+                case StringFamily:{ // 
+                    if(rightType == VARCHAR && leftType == VARCHAR) // both are varchar, length doesn't matter
+                        return compare(left, right, VARCHAR, 256, cmp, false, false);
+                    int maxLen = leftLength > rightLength ? leftLength : rightLength;
+                    uchar leftBuf[maxLen] = {0}, rightBuf[maxLen] = {0};
+                    if(leftLength > 255){
+                        ushort len;
+                        LoadLongVarchar(*(uint*)left, *(uint*)(left + 4), leftBuf, len);
+                    }
+                    else
+                        memcpy(leftBuf, left, leftLength);
+                    if(rightLength > 255){
+                        ushort len;
+                        LoadLongVarchar(*(uint*)right, *(uint*)(right + 4), rightBuf, len);
+                    }
+                    else
+                        memcpy(rightBuf, right, rightLength);
+                    return compare(leftBuf, rightBuf, CHAR, maxLen, cmp, false, false);
+                }
+                case RealFamily:{
+                    if(leftType != NUMERIC && rightType != NUMERIC){ // neither left nor right is numeric
+                        if(leftType == FLOAT || rightType == FLOAT){ // has float
+                            uchar lfloat[4], rfloat[4];
+                            // cast left
+                            if(leftType == INT)
+                                *(float*)lfloat = *(int*)left;
+                            else if(leftType == BIGINT)
+                                *(float*)lfloat = *(ll*)left;
+                            else
+                                memcpy(lfloat, left, 4);
+                            // cast right
+                            if(rightType == INT)
+                                *(float*)rfloat = *(int*)right;
+                            else if(leftType == BIGINT)
+                                *(float*)rfloat = *(ll*)right;
+                            else
+                                memcpy(rfloat, right, 4);
+                            return compare(lfloat, rfloat, FLOAT, 4, cmp, false, false);
+                        }
+                        if(leftType == BIGINT || rightType == BIGINT){ // no float, but has ll
+                            uchar lll[8], rll[8];
+                            // cast left
+                            if(leftType == INT)
+                                *(ll*)lll = *(int*)left;
+                            else
+                                memcpy(lll, left, 8);
+                            // cast right
+                            if(rightType == INT)
+                                *(ll*)rll = *(int*)right;
+                            else
+                                memcpy(rll, right, 8);
+                            return compare(lll, rll, BIGINT, 8, cmp, false, false);
+                        }
+                        return compare(left, right, INT, 4, cmp, false, false); // only int
+                    }
+                    else{ // has numeric
+                        if(leftType == NUMERIC && rightType == NUMERIC){ // both are numeric
+                            if(leftLength == rightLength)
+                                return compare(left, right, NUMERIC, leftLength, cmp, false, false);
+                            uchar leftP = leftLength >> 8, leftS = leftLength & 0xff;
+                            uchar rightP = rightLength >> 8, rightS = rightLength & 0xff;
+                            bool leftSign = left[0] & 128, rightSign = right[0] & 128;
+                            uchar leftDot = left[0] & 63, rightDot = right[0] & 63;
+                            uchar maxP = max(leftP, rightP), maxS = max(leftS, rightS);
+                            if(maxP + maxS > 38)
+                                maxS = 38 - maxP;
+                            uchar numLeft[39] = {0}, numRight[39] = {0};
+                            binToDigits(left + 1, numLeft, leftP);
+                            binToDigits(right + 1, numRight, rightP);
+                            for(int i = 0; i < 39; i++){ // ? floatToBin needs input as ascii instead of digit
+                                numLeft[i] += '0';
+                                numRight[i] += '0';
+                            }
+                            uchar binLeft[17] = {0}, binRight[17] = {0};
+                            floatToBin(leftSign, (char*)numLeft, leftP - leftDot, binLeft, maxP, maxS);
+                            floatToBin(rightSign, (char*)numRight, rightP - rightDot, binRight, maxP, maxS);
+                            return compare(binLeft, binRight, NUMERIC, (maxP << 8) & maxS, cmp, false, false);
+                        }
+                        if(leftType == FLOAT || rightType == FLOAT){ // one is float
+                            auto castNumericToFloat = [](ushort length, const uchar* data)->float{
+                                uchar sign = data[0] & 128;
+                                uchar dotPos = data[0] & 63;
+                                uchar p = length >> 8, s = length & 0xff;
+                                uchar digits[39] = {0};
+                                binToDigits(data + 1, digits, p);
+                                float ans = 0;
+                                for(int i = 0; i < p - dotPos; i++)
+                                    ans = ans * 10 + digits[i];
+                                float unit = 0.1f;
+                                for(int i = p - dotPos; i < p; i++, unit /= 10){
+                                    ans += unit * digits[i];
+                                }
+                                if(sign)
+                                    return -ans;
+                                else
+                                    return ans;
+                            };
+                            if(leftType == NUMERIC){
+                                uchar fbuf[4] = {0};
+                                *(float*)fbuf = castNumericToFloat(leftLength, left);
+                                return compare(fbuf, right, FLOAT, 4, cmp, false, false);
+                            }
+                            else{
+                                uchar fbuf[4] = {0};
+                                *(float*)fbuf = castNumericToFloat(rightLength, right);
+                                return compare(left, fbuf, FLOAT, 4, cmp, false, false);
+                            }
+                        }
+                        // return the result of bigint cmp data
+                        // decDigits should be 19 for ll and 10 for int
+                        auto IntNumCmp = [](ll bigint, ushort length, const uchar* data, uchar cmp, int decDigits)->bool{
+                            auto decPow = [](uchar pow)->ll{
+                                ll ans = 1;
+                                while(pow--)
+                                    ans *= 10;
+                                return ans;
+                            };
+                            uchar p = length >> 8;
+                            // bigint can store 19 dec digits (+-)
+                            if(p < decDigits){ // numeric cannot hold bigint, bigint -> numeric may cause overflow
+                                ll ofBound = decPow(p);
+                                if(bigint >= ofBound){
+                                    if(cmp == Comparator::Any || cmp == Comparator::Gt || cmp == Comparator::GtEq)
+                                        return true;
+                                    else
+                                        return false; // Lt, LtEq, NE
+                                }
+                                else if(bigint <= -ofBound){
+                                    if(cmp == Comparator::Any || cmp == Comparator::Lt || cmp == Comparator::LtEq)
+                                        return true;
+                                    else
+                                        return false; // Gt, GtEq, NE
+                                }
+                                // otherwise, cast bigint to numeric won't cause overflow
+                            }
+                            // p is big enough, now cast bigint to numeric
+                            uchar numBuf[p + 1] = {0};
+                            bool llSign = bigint < 0;
+                            for(int i = p - 1; i >= 0; i--){
+                                numBuf[i] = (bigint % 10) + '0'; // ? ascii for floatToBin
+                                bigint /= 10;
+                            }
+                            uchar llBin[17] = {0};
+                            floatToBin(llSign, (char*)numBuf, p, llBin, p, length & 0xff);
+                            return compare(llBin, data, NUMERIC, length, cmp, false, false);
+                        };
+                        if(leftType == BIGINT || rightType == BIGINT){ // one is BIGINT
+                            if(leftType == BIGINT)
+                                return IntNumCmp(*(ll*)left, rightLength, right, cmp, 19);
+                            else
+                                return IntNumCmp(*(ll*)right, leftLength, left, Comparator::Opposite(cmp), 19);
+                        }
+                        else{ // one is INT
+                            if(leftType == INT)
+                                return IntNumCmp(*(int*)left, rightLength, right, cmp, 10);
+                            else
+                                return IntNumCmp(*(int*)right, leftLength, left, Comparator::Opposite(cmp), 10);
+                        }
+                    }
+                }
+                default:
+                    assert(false); // impossible to reach here
+                    break;
+            }
+            return false; // never reach here
         }
 };
 

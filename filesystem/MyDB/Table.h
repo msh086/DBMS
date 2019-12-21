@@ -518,7 +518,7 @@ class Table{
         void Print();
 
         Scanner* GetScanner(bool (*demand)(const Record& record));
-        Scanner* GetScanner(const uchar* right, const uchar* types, const ushort* lengths, uint nullMask, int colNum, uchar* cmp);
+        Scanner* GetScanner(const uchar* right, int colNum, uchar* cmp);
 
         friend class DBMS;
         friend class Database;    

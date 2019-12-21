@@ -298,8 +298,10 @@ class BplusTree{
         ~BplusTree(){
             if(header)
                 delete header;
-            if(root)
+            if(root){
+                root->writeBack();
                 delete root;
+            }
         }
 
         struct Checker{

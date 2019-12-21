@@ -21,14 +21,12 @@ class DBMS{
         // 判断数据库是否已经存在
         // databaseName无需padding, padding由本函数完成
         bool databaseExists(const char* databaseName){
-            uchar type = DataType::CHAR;
-            ushort length = MAX_DB_NAME_LEN;
             uchar cmp = Comparator::Eq;
             // pad the databaseName to full length, so that comparison can take place correctly
             uchar buf[MAX_DB_NAME_LEN] = "";
             memcpy(buf, databaseName, strlen(databaseName));
             rec->FreeMemory();
-            scanner->SetDemand(buf, &type, &length, 0, 1, &cmp);
+            scanner->SetDemand(buf, 1, &cmp);
             if(scanner->NextRecord(rec)){
                 scanner->Reset();
                 return true;

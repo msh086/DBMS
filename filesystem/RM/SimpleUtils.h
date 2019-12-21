@@ -4,7 +4,10 @@
 #include "../utils/pagedef.h"
 
 template<typename T>
-T& min(const T& x, const T& y);
+T& min(T& x, T& y);
+
+template<typename T>
+T& max(T& x, T& y);
 
 bool identical(const char* s1, const char* s2, int maxLen);
 

@@ -205,5 +205,13 @@ void Table::Print(){
         tmpRec.FreeMemory();
         tables->Reset();
     }
-    // TODO: index
+    // index
+    for(int i = 0; i < idxCount; i++){
+        printf("index %.*s on", MAX_INDEX_NAME_LEN, header->indexName[i]);
+        for(uint j = 0, colMask = header->indexID[i]; colMask != 0; j++, colMask <<= 1){
+            if(colMask & 0x80000000)
+                printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[j]);
+        }
+        printf("\n");
+    }
 }

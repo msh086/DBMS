@@ -170,11 +170,9 @@ class Database{
 
         // 判断用户表是否存在
         bool TableExists(const char* tableName){
-            uchar type = DataType::CHAR;
-            ushort length = MAX_TABLE_NAME_LEN;
             uchar cmp = Comparator::Eq;
             rec->FreeMemory();
-            infoScanner->SetDemand((const uchar*)tableName, &type, &length, 0, 1, &cmp);
+            infoScanner->SetDemand((const uchar*)tableName, 1, &cmp);
             if(infoScanner->NextRecord(rec)){
                 infoScanner->Reset();
                 return true;
@@ -315,6 +313,7 @@ class Database{
             bool hasPrev = false;
             while(length > VARCHAR_FRAG_LEN){
                 // next page(4), next slot(4), length(2), data(502)
+                // for the tail fragment, next page and next slot are both 0
                 memset(buf, 0, 10);
                 *(ushort*)(buf + 8) = VARCHAR_FRAG_LEN;
                 memcpy(buf + 10, str, VARCHAR_FRAG_LEN);
@@ -385,6 +384,39 @@ class Database{
                 tmpRec.FreeMemory();
                 tmpRID.PageNum = pn;
                 tmpRID.SlotNum = sn;
+            }
+        }
+
+        int CompareLongVarchar(uint leftPage, uint leftSlot, uint rightPage, uint rightSlot){
+            Record leftRec, rightRec;
+            RID leftRID(leftPage, leftSlot), rightRID(rightPage, rightSlot);
+            idx->GetRecord(leftRID, &leftRec);
+            idx->GetRecord(rightRID, &rightRec);
+            while(*(uint*)leftRec.GetData() && *(uint*)rightRec.GetData()){ // both not at end
+                if(int tmpRes = strncmp((char*)leftRec.GetData() + 10, (char*)rightRec.GetData() + 10, VARCHAR_FRAG_LEN)){ // cmp result not zero
+                    return tmpRes;
+                }
+                leftRID.PageNum = *(uint*)leftRec.GetData();
+                leftRID.SlotNum = *(uint*)(leftRec.GetData() + 4);
+                rightRID.PageNum = *(uint*)rightRec.GetData();
+                rightRID.SlotNum = *(uint*)(rightRec.GetData() + 4);
+                leftRec.FreeMemory();
+                rightRec.FreeMemory();
+            }
+            // now either is at end
+            if(!*(uint*)leftRec.GetData()){ // left at end
+                int tmpRes = strncmp((char*)leftRec.GetData() + 10, (char*)rightRec.GetData() + 10, *(ushort*)(leftRec.GetData() + 8));
+                if(tmpRes)
+                    return tmpRes;
+                else
+                    return *(uint*)rightRec.GetData() ? -1 : 0; // left is a prefix of right
+            }
+            else{ // right at end
+                int tmpRes = strncmp((char*)leftRec.GetData() + 10, (char*)rightRec.GetData() + 10, *(ushort*)(rightRec.GetData() + 8));
+                if(tmpRes)
+                    return tmpRes;
+                else
+                    return 1; // right is a true prefix of left
             }
         }
 

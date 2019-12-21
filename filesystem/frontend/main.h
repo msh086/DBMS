@@ -6,12 +6,14 @@
 #include <set>
 #include <stdio.h>
 #include <vector>
+#include <algorithm>
 #include "../utils/pagedef.h" // 全局宏定义
 #include "Global.h" // lexer的辅助静态类
 #include "../RM/DataType.h"
 #include "Field.h"
 #include "../MyDB/DBMS.h"
 #include "../RM/SimpleUtils.h"
+#include "../indexing/BplusTree.h"
 
 extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个需要使用的C函数，其声明都包括在extern "C"{}块里面，这样C++链接时才能成功链接它们。extern "C"用来在C++环境下设置C链接类型。
 {					//lex.l中也有类似的这段extern "C"，可以把它们合并成一段，放到共同的头文件main.h中
@@ -66,6 +68,14 @@ struct WhereInstr{
 		cmp = Comparator::Any;
 		isExprCol = false;
 	}
+};
+
+struct SelectHelper{
+	uchar leftColID;
+	uchar rightColID;
+	Val val;
+	uchar cmp = DataType::NONE;
+	bool hasRightCol = false;
 };
 
 struct Constraint{
@@ -223,7 +233,7 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 					return false;
 				}
 				if(!Type::ConvertValue(TT.val, header->attrType[arg_pos], header->attrLenth[arg_pos], *arg_it, getBitFromLeft(header->nullMask, arg_pos))){
-					Global::newError(T5.pos, Global::format("Incompatible type for field %s.%d", header->attrName[arg_pos], MAX_ATTRI_NAME_LEN));
+					Global::newError(T5.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, header->attrName[arg_pos]));
 					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 					return false;
 				}
@@ -236,7 +246,7 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 			}
 			while(arg_pos < MAX_COL_NUM && header->attrType[arg_pos] != DataType::NONE){
 				if(!getBitFromLeft(header->defaultKeyMask, arg_pos)){
-					Global::newError(T5.pos, Global::format("No default value for field %s.%d", header->attrName[arg_pos], MAX_ATTRI_NAME_LEN));
+					Global::newError(T5.pos, Global::format("No default value for field %.*s", MAX_ATTRI_NAME_LEN, header->attrName[arg_pos]));
 					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 					return false;
 				}
@@ -246,7 +256,7 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 					}
 					else{
 						memcpy(TT.val.bytes, tmpRec.GetData() + table->ColOffset(arg_pos), DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
-						// NOTE: default value is long varchar -> insert a COPY of the long varchar
+						// NOTE: if default value is long varchar -> insert a COPY of the long varchar
 					}
 					TT.valList.push_back(TT.val);
 				}
@@ -254,9 +264,47 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 			TT.valLists.push_back(TT.valList);
 			TT.valList.clear();
 		}
-		// TODO: primary / foreign key constraint
-		// TODO: maintain index
+		// TODO: check foreign key constraints
+		// check primary key constraint and store generated index records for later insertion
+		int idxRecLength = 4;
+		std::vector<int> primaryColID;
+		std::vector<std::string> idxRecords;
+		for(uint i = 0, mask = table->GetHeader()->primaryKeyMask; mask != 0; i++, mask <<= 1){
+			if(mask & 0x80000000){
+				idxRecLength += DataType::lengthOf(table->GetHeader()->attrType[i], table->GetHeader()->attrLenth[i]);
+				primaryColID.push_back(i);
+			}
+		}
+		uchar idxRecBuf[idxRecLength] = {0};
+		BplusTree* primaryIdx = nullptr;
+		if(table->GetHeader()->primaryKeyMask){
+			uint idxPage = table->GetPrimaryIndexPage();
+			assert(idxPage);
+			primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
+			for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
+				memset(idxRecBuf, 0, idxRecLength);
+				int bufPos = 4;
+				for(int ColID : primaryColID){ // for every primary key
+					int colLength = DataType::lengthOf(table->GetHeader()->attrType[ColID], table->GetHeader()->attrLenth[ColID]);
+					if((*list_it)[ColID].type == DataType::NONE){
+						setBitFromLeft(*(uint*)idxRecBuf, ColID);
+						memset(idxRecBuf + bufPos, 0, colLength);
+					}
+					else
+						memcpy(idxRecBuf + bufPos, (*list_it)[ColID].bytes, colLength);
+					bufPos += colLength;
+				}
+				if(primaryIdx->SafeValueSearch(idxRecBuf, &tmpRID)){ // primary key no unique
+					Global::newError(T5.pos, "Primary key conflict");
+					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+					delete primaryIdx; // don't forget this
+					return false;
+				}
+				idxRecords.push_back(std::string((char*)idxRecBuf, idxRecLength));
+			}
+		}
 		// now there is no error in input, start insertion
+		int idxRecPos = 0;
 		for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every valList, build a record
 			int arg_pos = 0;
 			memset(tmpRec.GetData(), 0, 4); // set null word to 0
@@ -277,12 +325,15 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 				arg_pos++;
 			}
 			table->InsertRecord(tmpRec.GetData(), &tmpRID);
+			// TODO: update index
+			if(primaryIdx){
+				primaryIdx->SafeInsert((const uchar*)idxRecords[idxRecPos++].data(), tmpRID);
+			}
 		}
 		Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 		return true;
 	}
 };
-
 
 #define YYSTYPE Type//把YYSTYPE(即yylval变量)重定义为struct Type类型，这样lex就能向yacc返回更多的数据了
 

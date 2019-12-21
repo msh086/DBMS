@@ -1,8 +1,13 @@
 #include "SimpleUtils.h"
 template<typename T>
-T& min(const T& x, const T& y){
+T& min(T& x, T& y){
     return x > y ? y : x;
 } 
+
+template<typename T>
+T& max(T& x, T& y){
+    return x > y ? x : y;
+}
 
 bool identical(const char* s1, const char* s2, int maxLen){
     int len1 = strnlen(s1, maxLen), len2 = strnlen(s2, maxLen);
