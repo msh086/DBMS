@@ -47,14 +47,15 @@ class Header : public BaseHeader{
         // 索引名字
         uchar indexName[MAX_INDEX_NUM][MAX_INDEX_NAME_LEN] = {{0}};
         // 索引列ID
-        uint indexID[MAX_INDEX_NUM] = {0};
+        uchar indexID[MAX_INDEX_NUM][MAX_COL_NUM] = {0}; // ? 索引列的顺序很重要
         // b+树的RID
         uint bpTreePage[MAX_INDEX_NUM] = {0};
 
         Header(){
-            // set all fkMasters and fkSlaves to 31, which means invalid table id(none)
-            memset(fkMaster, 31, MAX_REF_SLAVE_TIME);
-            memset(fkSlave, 31, MAX_FK_MASTER_TIME);
+            // set all fkMasters, fkSlaves and indexID to 31, which means invalid table id(none)
+            memset(fkMaster, TB_ID_NONE, MAX_REF_SLAVE_TIME);
+            memset(fkSlave, TB_ID_NONE, MAX_FK_MASTER_TIME);
+            memset(indexID, COL_ID_NONE, MAX_INDEX_NUM * MAX_COL_NUM);
         }
 
         /* header的长度 */
@@ -67,7 +68,7 @@ class Header : public BaseHeader{
             MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN + // constraintName
             MAX_FK_MASTER_TIME + // fkSlave
             MAX_INDEX_NUM * MAX_INDEX_NAME_LEN + // indexName
-            MAX_INDEX_NUM * sizeof(uint) + // indexID
+            MAX_INDEX_NUM * MAX_COL_NUM + // indexID
             MAX_INDEX_NUM * sizeof(uint); // bpTreePage
         
         /* 外键部分的offset */
@@ -165,8 +166,8 @@ class Header : public BaseHeader{
             memcpy(charPtr, indexName, MAX_INDEX_NUM * MAX_INDEX_NAME_LEN);
             charPtr += MAX_INDEX_NUM * MAX_INDEX_NAME_LEN;
 
-            memcpy(charPtr, indexID, MAX_INDEX_NUM * sizeof(uint));
-            charPtr += MAX_INDEX_NUM * sizeof(uint);
+            memcpy(charPtr, indexID, MAX_INDEX_NUM * MAX_COL_NUM);
+            charPtr += MAX_INDEX_NUM * MAX_COL_NUM;
 
             memcpy(charPtr, bpTreePage, MAX_INDEX_NUM * sizeof(uint));
         }
@@ -210,8 +211,8 @@ class Header : public BaseHeader{
             memcpy(indexName, charPtr, MAX_INDEX_NUM * MAX_INDEX_NAME_LEN);
             charPtr += MAX_INDEX_NUM * MAX_INDEX_NAME_LEN;
 
-            memcpy(indexID, charPtr, MAX_INDEX_NUM * sizeof(uint));
-            charPtr += MAX_INDEX_NUM * sizeof(uint);
+            memcpy(indexID, charPtr, MAX_INDEX_NUM * MAX_COL_NUM);
+            charPtr += MAX_INDEX_NUM * MAX_COL_NUM;
 
             memcpy(bpTreePage, charPtr, MAX_INDEX_NUM * sizeof(uint));
         }

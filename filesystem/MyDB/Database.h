@@ -89,9 +89,9 @@ class Database{
                 fm->openFile(getPath(DB_RESERVED_TABLE_NAME), fid_info);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
-                header->recordLenth = MAX_TABLE_NAME_LEN;
+                header->recordLenth = MAX_TABLE_NAME_LEN + 4; // ? null word
                 header->slotNum = PAGE_SIZE / header->recordLenth;
-                header->attrLenth[0] = header->recordLenth;
+                header->attrLenth[0] = MAX_TABLE_NAME_LEN;
                 header->attrType[0] = DataType::CHAR;
                 header->nullMask = 0;
                 //handle default record, which always exists not matter the value of defaultKeyMask
@@ -111,7 +111,7 @@ class Database{
                 fm->openFile(getPath(IDX_RESERVED_TABLE_NAME), fid_idx);
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
-                header->recordLenth = PAGE_SIZE; // TODO the null byte?
+                header->recordLenth = PAGE_SIZE; // ? B+ tree pages are never compared as a whole record, so it will be ok to ignore the null word thing?
                 header->slotNum = 1;
                 header->nullMask = 0;
                 //handle default record, which always exists not matter the value of defaultKeyMask
@@ -172,7 +172,9 @@ class Database{
         bool TableExists(const char* tableName){
             uchar cmp = Comparator::Eq;
             rec->FreeMemory();
-            infoScanner->SetDemand((const uchar*)tableName, 1, &cmp);
+            uchar buf[MAX_TABLE_NAME_LEN + 4] = {}; // ? null word
+            memcpy(buf + 4, tableName, strlen(tableName));
+            infoScanner->SetDemand(buf, 1, &cmp);
             if(infoScanner->NextRecord(rec)){
                 infoScanner->Reset();
                 return true;
@@ -221,8 +223,8 @@ class Database{
             if(closeret != 0){
                 printf("In Databse::CreateTable, cannot close file\n");
             }
-            uchar data[MAX_TABLE_NAME_LEN] = {0};
-            memcpy(data, tablename, strlen(tablename));
+            uchar data[MAX_TABLE_NAME_LEN + 4] = {0}; // ? null word
+            memcpy(data + 4, tablename, strlen(tablename));
             info->InsertRecord(data, rid);
             return rid->GetSlotNum() - 1; // ? the same hazard as in OpenTable
         }
@@ -295,8 +297,8 @@ class Database{
         bool RenameTable(const char* oldName, const char* newName){
             // TODO, close first if opened?
             if(TableExists(oldName)){ // after calling tableExist(name), the found record is stored in 'rec'
-                memset(rec->GetData(), 0, MAX_TABLE_NAME_LEN);
-                memcpy(rec->GetData(), newName, strlen(newName));
+                memset(rec->GetData() + 4, 0, MAX_TABLE_NAME_LEN); // ? null word
+                memcpy(rec->GetData() + 4, newName, strlen(newName));
                 info->UpdateRecord(*rec->GetRid(), rec->GetData(), 0, 0, MAX_TABLE_NAME_LEN);
                 return true;
             }

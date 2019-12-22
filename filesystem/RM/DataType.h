@@ -64,6 +64,195 @@ class DataType{
             return 1 + (p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0) + 7) / 8;
         }
 
+        /**
+         * These methods are only used as submethods
+        */
+       // 单字段比较时,left和right都不包括null word
+
+        /**
+         * 当left,right都为null时,返回true
+         * 当一方为null时,认为null为最小值
+        */
+        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            if(type == NONE){
+                std::printf("Error: NONE type is not comparable");
+                return false;
+            }
+            const uchar* datal = left, *datar = right;
+            if(nullLeft && nullRight)
+                return true;
+            if(nullLeft)
+                return false;
+            if(nullRight)
+                return true;
+            switch (type)
+            {
+            case FLOAT:{ // we don't follow SQL server rules, float is just float. It takes 4 bytes
+                float* floatl = (float*)datal, *floatr = (float*)datar;
+                return *floatl >= *floatr;
+                break;
+            }
+            case BIGINT:{ // signed long long
+                ll* bigintl = (ll*)datal, *bigintr = (ll*)datar;
+                return *bigintl >= *bigintr;
+                break;
+            }
+            case CHAR:{ // 0-255 bytes
+                return strncmp((const char*)datal, (const char*)datar, length) >= 0;
+                break;
+            }
+            case NUMERIC:{ 
+                // 1B: 1b for sign, 6b for dot position; 16B: 127b for 38 dec digits
+                // numeric(p, s), p = 1, 2,...38, s = 0, 1,...p. p is the max dec digits to store, s is the max dec digits to the right of dot
+                // p = 3k: bytes = ceiling(10k) + 1
+                // p = 3k + 1: bytes = ceiling(10k + 4) + 1
+                // p = 3k + 2: bytes = ceiling(10k + 7) + 1
+                // p, s are stored in length(ushort)
+                bool signl = datal[0] >> 7, signr = datar[0] >> 7;
+                if(signl != signr) // one is positive, the other is negative
+                    return signl ? false : true; // signl == true -> left <= 0
+                uint p = length >> 8, s = length & ((1 << 8) - 1);
+                uchar bufferl[p] = {0};
+                uchar bufferr[p] = {0};
+                binToDigits(datal + 1, bufferl, p);
+                binToDigits(datar + 1, bufferr, p);
+                int dotPosl = datal[0] & 63, dotPosr = datar[0] & 63;
+                bool isNegative = signl;
+                bool result = !isNegative; // comparison result of abs value, the value of this will stay untouched if two numberic are equal
+                // ? when converting float to bin, dotpos is max(leftDotLength, p - s)
+                // ? so when two numeric's dotpos are different, they have different leftDotLength
+                if(dotPosl < dotPosr){
+                    result = true; // note dotpos is the number of digits to the right of the dot
+                }
+                else if(dotPosl > dotPosr){
+                    result = false;
+                }
+                else{ // when two numeric have the same dotpos
+                    for(int i = 0; i < p; i++){
+                        if(bufferl[i] > bufferr[i]){
+                            result = true;
+                            break;
+                        }
+                        else if(bufferl[i] < bufferr[i]){
+                            result = false;
+                            break;
+                        }
+                    }
+                }
+                return isNegative ? !result : result;
+                break;
+            }
+            case DATE:{ // 14 bits of year 1~9999, 4 bits of month 1~12, 5 bits of day 1~31, total 23 bits < 3 Bytes
+                int yearl, monthl, dayl, yearr, monthr, dayr;
+                binToDate(datal, yearl, monthl, dayl);
+                binToDate(datar, yearr, monthr, dayr);
+                if(yearl < yearr)
+                    return false;
+                if(monthl < monthr)
+                    return false;
+                if(dayl < dayr)
+                    return false;
+                return true;
+                break;
+            }
+            case INT: // 4 bytes as it is in cpp
+                return *(int*)(datal) >= *(int*)datar;
+                break;
+            case VARCHAR:
+                if(length <= 255)
+                    return strncmp((const char*)datal, (const char*)datar, length) >= 0;
+                else{
+                    if(!leftConstant && !rightConstant) // both are rid
+                        return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) >= 0;
+                    else{
+                        uchar buf[length] = {0};
+                        if(leftConstant){
+                            ushort len;
+                            LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
+                            return strncmp((char*)datal, (char*)buf, length) >= 0;
+                        }
+                        else{ // ? We assume that there can be no more than 1 constant in left and right
+                            ushort len;
+                            LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
+                            return strncmp((char*)buf, (char*)datar, length) >= 0;
+                        }
+                    }
+                }
+                break;
+            default:
+                break;
+            }
+        }
+
+        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            const uchar* datal = left, *datar = right;
+            if(nullLeft && nullRight)
+                return true;
+            if(nullLeft || nullRight)
+                return false;
+            switch(type){
+                case NONE:
+                    std::printf("trying to compare type NONE\n");
+                    return false;
+                    break;
+                case FLOAT:
+                    return *(float*)datal == *(float*)datar;
+                    break;
+                case BIGINT:
+                    return *(ll*)datal == *(ll*)datar;
+                    break;
+                case CHAR:
+                    return strncmp((char*)datal, (char*)datar, length) == 0;
+                    break;
+                case VARCHAR:{
+                    if(length <= 255){
+                        return strncmp((char*)datal, (char*)datar, length) == 0;
+                    }
+                    else{
+                        if(!leftConstant && !rightConstant) // both are rid
+                        return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) == 0;
+                        else{
+                            uchar buf[length] = {0};
+                            if(leftConstant){
+                                ushort len;
+                                LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
+                                return strncmp((char*)datal, (char*)buf, length) == 0;
+                            }
+                            else{ // ? We assume that there can be no more than 1 constant in left and right
+                                ushort len;
+                                LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
+                                return strncmp((char*)buf, (char*)datar, length) == 0;
+                            }
+                        }
+                    }
+                    break;
+                }
+                case NUMERIC:{
+                    int length = lengthNumberic(length >> 8);
+                    return strncmp((char*)datal, (char*)datar, length) == 0;
+                    break;
+                }
+                case DATE:
+                    return strncmp((char*)datal, (char*)datar, 3) == 0;
+                    break;
+                case INT:
+                    return *(int*)datal == *(int*)datar;
+                    break;
+            }
+        }
+
+        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            return noLessThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant) && !eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
+        }
+
+        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            return greaterThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
+        }
+
+        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
+            return noLessThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
+        }
+
     public:
         const static uchar NONE = 0,
             FLOAT = 1,
@@ -92,6 +281,8 @@ class DataType{
             case INT:
                 return 4;
             case NUMERIC:{
+                if(!useMemoryLength) // keep original length
+                    return length;
                 int p = length >> 8;
                 int p_div_3 = p / 3, p_mod_3 = p % 3;
                 return 1 + (p_div_3 * 10 + (p_mod_3 ? (3 * p_mod_3 + 1) : 0) + 7) / 8;
@@ -100,9 +291,9 @@ class DataType{
                 return length;
             case VARCHAR:
                 return (useMemoryLength && length > 255) ? 8 : length;
-            default: // char, varchar don't have a fixed length
+            default:
                 printf("Undefined type in DataType::lengthOf\n");
-                return length; // TODO: varchar ?
+                return length;
             }
         }
 
@@ -328,193 +519,7 @@ class DataType{
             day = readBits(src, byte, offset, 5);
         }
 
-        static int cmpLongVarchar(uint lpage, uint lslot, uint rpage, uint rslot);
-
-        // 单字段比较时,left和right都不包括null word
-
-        /**
-         * 当left,right都为null时,返回true
-         * 当一方为null时,认为null为最小值
-        */
-        static bool noLessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
-            if(type == NONE){
-                std::printf("Error: NONE type is not comparable");
-                return false;
-            }
-            const uchar* datal = left, *datar = right;
-            if(nullLeft && nullRight)
-                return true;
-            if(nullLeft)
-                return false;
-            if(nullRight)
-                return true;
-            switch (type)
-            {
-            case FLOAT:{ // we don't follow SQL server rules, float is just float. It takes 4 bytes
-                float* floatl = (float*)datal, *floatr = (float*)datar;
-                return *floatl >= *floatr;
-                break;
-            }
-            case BIGINT:{ // signed long long
-                ll* bigintl = (ll*)datal, *bigintr = (ll*)datar;
-                return *bigintl >= *bigintr;
-                break;
-            }
-            case CHAR:{ // 0-255 bytes
-                return strncmp((const char*)datal, (const char*)datar, length) >= 0;
-                break;
-            }
-            case NUMERIC:{ 
-                // 1B: 1b for sign, 6b for dot position; 16B: 127b for 38 dec digits
-                // numeric(p, s), p = 1, 2,...38, s = 0, 1,...p. p is the max dec digits to store, s is the max dec digits to the right of dot
-                // p = 3k: bytes = ceiling(10k) + 1
-                // p = 3k + 1: bytes = ceiling(10k + 4) + 1
-                // p = 3k + 2: bytes = ceiling(10k + 7) + 1
-                // p, s are stored in length(ushort)
-                bool signl = datal[0] >> 7, signr = datar[0] >> 7;
-                if(signl != signr) // one is positive, the other is negative
-                    return signl ? false : true; // signl == true -> left <= 0
-                uint p = length >> 8, s = length & ((1 << 8) - 1);
-                uchar bufferl[p] = {0};
-                uchar bufferr[p] = {0};
-                binToDigits(datal + 1, bufferl, p);
-                binToDigits(datar + 1, bufferr, p);
-                int dotPosl = datal[0] & 63, dotPosr = datar[0] & 63;
-                bool isNegative = signl;
-                bool result = !isNegative; // comparison result of abs value, the value of this will stay untouched if two numberic are equal
-                // ? when converting float to bin, dotpos is max(leftDotLength, p - s)
-                // ? so when two numeric's dotpos are different, they have different leftDotLength
-                if(dotPosl < dotPosr){
-                    result = true; // note dotpos is the number of digits to the right of the dot
-                }
-                else if(dotPosl > dotPosr){
-                    result = false;
-                }
-                else{ // when two numeric have the same dotpos
-                    for(int i = 0; i < p; i++){
-                        if(bufferl[i] > bufferr[i]){
-                            result = true;
-                            break;
-                        }
-                        else if(bufferl[i] < bufferr[i]){
-                            result = false;
-                            break;
-                        }
-                    }
-                }
-                return isNegative ? !result : result;
-                break;
-            }
-            case DATE:{ // 14 bits of year 1~9999, 4 bits of month 1~12, 5 bits of day 1~31, total 23 bits < 3 Bytes
-                int yearl, monthl, dayl, yearr, monthr, dayr;
-                binToDate(datal, yearl, monthl, dayl);
-                binToDate(datar, yearr, monthr, dayr);
-                if(yearl < yearr)
-                    return false;
-                if(monthl < monthr)
-                    return false;
-                if(dayl < dayr)
-                    return false;
-                return true;
-                break;
-            }
-            case INT: // 4 bytes as it is in cpp
-                return *(int*)(datal) >= *(int*)datar;
-                break;
-            case VARCHAR:
-                if(length <= 255)
-                    return strncmp((const char*)datal, (const char*)datar, length) >= 0;
-                else{
-                    if(!leftConstant && !rightConstant) // both are rid
-                        return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) >= 0;
-                    else{
-                        uchar buf[length] = {0};
-                        if(leftConstant){
-                            ushort len;
-                            LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
-                            return strncmp((char*)datal, (char*)buf, length) >= 0;
-                        }
-                        else{ // ? We assume that there can be no more than 1 constant in left and right
-                            ushort len;
-                            LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
-                            return strncmp((char*)buf, (char*)datar, length) >= 0;
-                        }
-                    }
-                }
-                break;
-            default:
-                break;
-            }
-        }
-
-        static bool eq(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
-            const uchar* datal = left, *datar = right;
-            if(nullLeft && nullRight)
-                return true;
-            if(nullLeft || nullRight)
-                return false;
-            switch(type){
-                case NONE:
-                    std::printf("trying to compare type NONE\n");
-                    return false;
-                    break;
-                case FLOAT:
-                    return *(float*)datal == *(float*)datar;
-                    break;
-                case BIGINT:
-                    return *(ll*)datal == *(ll*)datar;
-                    break;
-                case CHAR:
-                    return strncmp((char*)datal, (char*)datar, length) == 0;
-                    break;
-                case VARCHAR:{
-                    if(length <= 255){
-                        return strncmp((char*)datal, (char*)datar, length) == 0;
-                    }
-                    else{
-                        if(!leftConstant && !rightConstant) // both are rid
-                        return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) == 0;
-                        else{
-                            uchar buf[length] = {0};
-                            if(leftConstant){
-                                ushort len;
-                                LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
-                                return strncmp((char*)datal, (char*)buf, length) == 0;
-                            }
-                            else{ // ? We assume that there can be no more than 1 constant in left and right
-                                ushort len;
-                                LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
-                                return strncmp((char*)buf, (char*)datar, length) == 0;
-                            }
-                        }
-                    }
-                    break;
-                }
-                case NUMERIC:{
-                    int length = lengthNumberic(length >> 8);
-                    return strncmp((char*)datal, (char*)datar, length) == 0;
-                    break;
-                }
-                case DATE:
-                    return strncmp((char*)datal, (char*)datar, 3) == 0;
-                    break;
-                case INT:
-                    return *(int*)datal == *(int*)datar;
-                    break;
-            }
-        }
-
-        static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
-            return noLessThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant) && !eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
-        }
-
-        static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
-            return greaterThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
-        }
-
-        static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
-            return noLessThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
-        }
+        static int cmpLongVarchar(uint lpage, uint lslot, uint rpage, uint rslot);        
 
         // 复合属性比较
 

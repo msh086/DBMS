@@ -5,32 +5,27 @@ FileManager* Database::fm = FileManager::Instance();
 std::vector<Table*> Database::activeTables;
 
 // table ops
-int Table::CreateIndexOn(uint cols, const char* idxName){
+int Table::CreateIndexOn(std::vector<uchar> cols, const char* idxName){
     if(idxCount == MAX_INDEX_NUM) // full
         return 2;
     headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
     for(int i = 0; i < MAX_INDEX_NUM; i++)
         if(identical(idxName, (char*)header->indexName[i], MAX_INDEX_NAME_LEN)) // conflict
             return 1;
-    // check if cols is illegal
-    if(cols & (((uint)-1) >> colCount))
-        return 3;
     // update idx name
     memcpy(header->indexName[idxCount], idxName, strnlen(idxName, MAX_INDEX_NAME_LEN));
-    header->indexID[idxCount] = cols;
+    int idxColNum = cols.size();
+    for(int i = 0; i < idxColNum; i++)
+        header->indexID[idxCount][idxColNum] = cols[i];
     // operation on idx table
     IndexHeader* idxHeader = new IndexHeader();
     idxHeader->nullMask = -1;
-    int iter = 0;
-    for(int i = 0; i < colCount; i++){
-        if(getBitFromLeft(cols, i)){
-            idxHeader->attrType[iter] = header->attrType[i];
-            idxHeader->attrLenth[iter] = header->attrLenth[i];
-            if(!getBitFromLeft(header->nullMask, i))
-                clearBitFromLeft(idxHeader->nullMask, iter);
-            idxHeader->indexColID[iter] = i;
-            iter++;
-        }
+    for(int i = 0; i < idxCount; i++){
+        idxHeader->attrType[i] = header->attrType[cols[i]];
+        idxHeader->attrLenth[i] = header->attrLenth[cols[i]];
+        idxHeader->indexColID[i] = cols[i];
+        if(!getBitFromLeft(header->nullMask, cols[i]))
+            clearBitFromLeft(idxHeader->nullMask, i);
     }
     memcpy(idxHeader->tableName, tablename, MAX_TABLE_NAME_LEN);
     BplusTree* tree = new BplusTree(db->idx, idxHeader);
@@ -56,7 +51,7 @@ bool Table::RemoveIndex(const char* idxName){
     memset(header->indexName[idxCount - 1], 0, MAX_INDEX_NAME_LEN);
     // update index col ID, type: uint
     memcpy(&header->indexID[pos], &header->indexID[pos + 1], (idxCount - pos - 1) * sizeof(uint));
-    header->indexID[idxCount - 1] = 0;
+    memset(header->indexID[idxCount - 1], COL_ID_NONE, MAX_COL_NUM);
     // remove tree
     BplusTree* tree = new BplusTree(db->idx, header->bpTreePage[pos]);
     tree->DeleteTreeFromDisk();
@@ -88,66 +83,7 @@ void Table::Print(){
         tmp.push_back(DataType::TypeToString(header->attrType[i], header->attrLenth[i]));
         tmp.push_back(getBitFromLeft(header->nullMask, i) ? "" : "not null");
         if(getBitFromLeft(header->defaultKeyMask, i)){
-            if(getBitFromLeft(*(uint*)tmpRec.GetData(), i))
-                tmp.push_back("NULL");
-            else
-                switch (header->attrType[i])
-                {
-                case DataType::NUMERIC:{
-                    int p = header->attrLenth[i] >> 8, s = header->attrLenth[i] & 0xff;
-                    uchar buf[p];
-                    DataType::binToDigits(tmpRec.GetData() + offsets[i] + 1, buf, p);
-                    uchar firstByte = tmpRec.GetData()[offsets[i]];
-                    bool hasSign = firstByte & 128;
-                    uchar dotPos = firstByte & 63;
-                    string str;
-                    if(hasSign)
-                        str.push_back('-');
-                    str.append((char*)buf, p - dotPos);
-                    if(dotPos)
-                        str.push_back('.');
-                    str.append((char*)(buf + p - dotPos), dotPos);
-                    tmp.push_back(str);
-                    break;
-                }
-                case DataType::DATE:{
-                    int y, m, d;
-                    DataType::binToDate(tmpRec.GetData() + offsets[i], y, m, d);
-                    tmp.push_back(std::to_string(y) + "-" + std::to_string(m) + "-" + std::to_string(d));
-                    break;
-                }
-                case DataType::INT:{
-                    tmp.push_back(std::to_string(*(int*)(tmpRec.GetData() + offsets[i])));
-                    break;
-                }
-                case DataType::BIGINT:{
-                    tmp.push_back(std::to_string(*(ll*)(tmpRec.GetData() + offsets[i])));
-                    break;
-                }
-                case DataType::FLOAT:{
-                    tmp.push_back(std::to_string(*(float*)(tmpRec.GetData() + offsets[i])));
-                    break;
-                }
-                case DataType::CHAR:{
-                    tmp.push_back(string((char*)(tmpRec.GetData() + offsets[i]), strnlen((char*)(tmpRec.GetData() + offsets[i]), 255)));
-                    break;
-                }
-                case DataType::VARCHAR:{
-                    if(header->attrLenth[i] <= 255)
-                        tmp.push_back(string((char*)(tmpRec.GetData() + offsets[i]), strnlen((char*)(tmpRec.GetData() + offsets[i]), 255)));
-                    else{
-                        uchar buf[header->attrLenth[i]] = {0};
-                        int page = *(uint*)(tmpRec.GetData() + offsets[i]), slot = *(uint*)(tmpRec.GetData() + offsets[i] + 4);
-                        ushort realLen = 0;
-                        db->GetLongVarchar(RID(page, slot), buf, realLen);
-                        tmp.push_back(string((char*)buf, realLen));
-                    }
-                    break;
-                }
-                default:
-                    assert(false);
-                    break;
-                }
+            tmp.push_back(Printer::FieldToStr(tmpRec, header->attrType[i], i, header->attrLenth[i], offsets[i]));
         }
         else
             tmp.push_back(""); // no default value
@@ -208,9 +144,8 @@ void Table::Print(){
     // index
     for(int i = 0; i < idxCount; i++){
         printf("index %.*s on", MAX_INDEX_NAME_LEN, header->indexName[i]);
-        for(uint j = 0, colMask = header->indexID[i]; colMask != 0; j++, colMask <<= 1){
-            if(colMask & 0x80000000)
-                printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[j]);
+        for(int j = 0; header->indexID[i][j] != COL_ID_NONE; j++){
+            printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[header->indexID[i][j]]);
         }
         printf("\n");
     }

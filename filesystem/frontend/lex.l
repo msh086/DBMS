@@ -50,7 +50,7 @@ integer		({digit}+)
 float		({digit}+"."{digit}*)
 
 /* 日期(可能不合法) */
-date  		({digit}{1,4}-{digit}{1,2}-{digit}{1,2});
+date  		({digit}{1,4}"-"{digit}{1,2}"-"{digit}{1,2})
 
 /*标识符，以非数字开头，后跟0至多个数字或非数字*/
 identifier	([A-Za-z][_0-9a-zA-Z]*)
@@ -111,7 +111,11 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 "decimal"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;} // trick: decimal is the same as numeric
 "on"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return ON;}
 "to"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return TO;}
+
 "exit"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return EXIT;}
+"copy"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return COPY;}
+"with"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return WITH;}
+"delimiter"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DELIMITER;}
 
 ">="			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return GE;}
 "<="			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return LE;}
@@ -200,6 +204,6 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 //第3段：C函数定义段
 int yywrap(void)
 {
-	puts("From flex: end of input");
+	// puts("From flex: end of input");
 	return 1;								//返回1表示读取全部结束。如果要接着读其它文件，可以这里fopen该文件，文件指针赋给yyin，并返回0
 }

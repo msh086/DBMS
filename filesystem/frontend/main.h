@@ -55,6 +55,11 @@ struct SetInstr{
 	}
 };
 
+struct SetHelper{
+	uchar colID;
+	Val value;
+};
+
 struct WhereInstr{
 	Col column;
 	Col exprCol;
@@ -145,6 +150,7 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	 * 将 @param value 的值转换为 @param type 类型,并存储到dst内
 	 * 返回转换是否成功
 	 * @param length 应为原始长度,不是内存长度
+	 * NOTE: dst.type会被赋值为value.type,即目标Val的类型是源Val类型,而非字段类型
 	*/
 	static bool ConvertValue(Val& dst, uchar type, ushort length, const Val& value, bool nullable){
 		dst.type = value.type;
@@ -206,131 +212,124 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	}
 
 	static bool debug(std::vector<Type> &typeVec){
-		Type &TT = typeVec[0], &T1 = typeVec[1], &T3 = typeVec[2], &T5 = typeVec[3];
-		if(Global::dbms->CurrentDatabase() == nullptr){
-			Global::newError(T1.pos, "No available database");
-			return false;
-		}
-		if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
-			Global::newError(T3.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
-			return false;
-		}
-		Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
-		if(!table){
-			Global::newError(T3.pos, Global::format("No table named %s", T3.val.str.data()));
-			return false;
-		}
-		Record tmpRec;
-		RID tmpRID(1, 0);
-		table->GetRecord(tmpRID, &tmpRec); // the default record
-		const Header* header = table->GetHeader();
-		for(auto list_it = T5.valLists.begin(); list_it != T5.valLists.end(); list_it++){
-			int arg_pos = 0;
-			for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){
-				if(arg_pos == MAX_COL_NUM || header->attrType[arg_pos] == DataType::NONE){
-					Global::newError(T5.pos, Global::format("Incompatible field num, %d expected, %d given", arg_pos, list_it->size()));
-					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data()); // remember to close table before exit
-					return false;
-				}
-				if(!Type::ConvertValue(TT.val, header->attrType[arg_pos], header->attrLenth[arg_pos], *arg_it, getBitFromLeft(header->nullMask, arg_pos))){
-					Global::newError(T5.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, header->attrName[arg_pos]));
-					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
-					return false;
-				}
-				if(arg_it->type == DataType::NONE) // null value
-					TT.val.type = DataType::NONE;
-				else
-					TT.val.type = header->attrType[arg_pos];
-				arg_pos++;
-				TT.valList.push_back(TT.val);
+		Type &T2 = typeVec[0], &T4 = typeVec[1], &T6 = typeVec[2];
+		int selectNum = T2.colList.size();
+		if(T4.IDList.size() == 1){ // select from one table
+			if(!Global::dbms->CurrentDatabase()){
+				Global::newError(T4.pos, "No available database");
+				return false;
 			}
-			while(arg_pos < MAX_COL_NUM && header->attrType[arg_pos] != DataType::NONE){
-				if(!getBitFromLeft(header->defaultKeyMask, arg_pos)){
-					Global::newError(T5.pos, Global::format("No default value for field %.*s", MAX_ATTRI_NAME_LEN, header->attrName[arg_pos]));
-					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
-					return false;
-				}
-				else{
-					if(getBitFromLeft(*tmpRec.GetData(), arg_pos)){ // default value is null
-						TT.val.type = DataType::NONE;
+			if(T4.IDList[0].length() > MAX_TABLE_NAME_LEN){
+				Global::newError(T4.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
+				return false;
+			}
+			Table* table = Global::dbms->CurrentDatabase()->OpenTable(T4.IDList[0].data());
+			if(!table){
+				Global::newError(T4.pos, Global::format("No table named %d", T4.IDList[0].data()));
+				return false;
+			}
+			// check selector
+			std::vector<uchar> wantedCols;
+			if(!T2.selectAll){ // not select*
+				for(auto col_it = T2.colList.begin(); col_it != T2.colList.end(); col_it++){
+					if(col_it->tableName.length() && col_it->tableName != T4.IDList[0]){
+						Global::newError(T2.pos, Global::format("Irrelevant table %s", col_it->tableName.data()));
+						Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+						return false;
 					}
-					else{
-						memcpy(TT.val.bytes, tmpRec.GetData() + table->ColOffset(arg_pos), DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
-						// NOTE: if default value is long varchar -> insert a COPY of the long varchar
+					uchar tmpColID = table->IDofCol(col_it->colName.data());
+					if(tmpColID == COL_ID_NONE){
+						Global::newError(T2.pos, Global::format("Unknown field %s", col_it->colName.data()));
+						Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+						return false;
 					}
-					TT.valList.push_back(TT.val);
+					wantedCols.push_back(tmpColID);
 				}
+				std::sort(wantedCols.begin(), wantedCols.end()); // sort it
 			}
-			TT.valLists.push_back(TT.valList);
-			TT.valList.clear();
-		}
-		// TODO: check foreign key constraints
-		// check primary key constraint and store generated index records for later insertion
-		int idxRecLength = 4;
-		std::vector<int> primaryColID;
-		std::vector<std::string> idxRecords;
-		for(uint i = 0, mask = table->GetHeader()->primaryKeyMask; mask != 0; i++, mask <<= 1){
-			if(mask & 0x80000000){
-				idxRecLength += DataType::lengthOf(table->GetHeader()->attrType[i], table->GetHeader()->attrLenth[i]);
-				primaryColID.push_back(i);
+			else{ // select*
+				for(int i = 0; i < table->ColNum(); i++)
+					wantedCols.push_back(i);
 			}
-		}
-		uchar idxRecBuf[idxRecLength] = {0};
-		BplusTree* primaryIdx = nullptr;
-		if(table->GetHeader()->primaryKeyMask){
-			uint idxPage = table->GetPrimaryIndexPage();
-			assert(idxPage);
-			primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
-			for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
-				memset(idxRecBuf, 0, idxRecLength);
-				int bufPos = 4;
-				for(int ColID : primaryColID){ // for every primary key
-					int colLength = DataType::lengthOf(table->GetHeader()->attrType[ColID], table->GetHeader()->attrLenth[ColID]);
-					if((*list_it)[ColID].type == DataType::NONE){
-						setBitFromLeft(*(uint*)idxRecBuf, ColID);
-						memset(idxRecBuf + bufPos, 0, colLength);
+			// check whereClause validity
+			std::vector<SelectHelper> helpers;
+			for(auto where_it = T6.condList.begin(); where_it != T6.condList.end(); where_it++){
+				if(where_it->column.tableName.length() && where_it->column.tableName != T4.IDList[0]){
+					Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->column.tableName.data()));
+					Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+					return false;
+				}
+				if(where_it->isExprCol && where_it->exprCol.tableName.length() && where_it->exprCol.tableName != T4.IDList[0]){
+					Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->exprCol.tableName.data()));
+					Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+					return false;
+				}
+				uchar colIDLeft = table->IDofCol(where_it->column.colName.data());
+				if(colIDLeft == COL_ID_NONE){
+					Global::newError(T6.pos, Global::format("Unknown field %s", where_it->column.colName.data()));
+					Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+					return false;
+				}
+				uchar colIDRight = COL_ID_NONE;
+				if(where_it->isExprCol){
+					colIDRight = table->IDofCol(where_it->exprCol.colName.data());
+					if(colIDRight == COL_ID_NONE){
+						Global::newError(T6.pos, Global::format("Unknown field %s", where_it->exprCol.colName.data()));
+						Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+						return false;
+					}
+				}
+				SelectHelper helper;
+				helper.leftColID = colIDLeft;
+				helper.rightColID = colIDRight;
+				helper.cmp = where_it->cmp;
+				if(!where_it->isExprCol){ // col = value, convert value into binary
+					if(!Type::ConvertValue(helper.val, table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrLenth[colIDLeft], 
+						where_it->exprVal, getBitFromLeft(table->GetHeader()->nullMask, colIDLeft))){
+							Global::newError(T6.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft]));
+							Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+							return false;
+						}
+				}
+				else{ // col = col, check type compatility
+					if(!DataType::Comparable(table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrType[colIDRight])){
+						Global::newError(T6.pos, Global::format("Field %.*s and %.*s are incomparable", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft], 
+							MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDRight]));
+						Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+						return false;
+					}
+				}
+				helper.hasRightCol = where_it->isExprCol;
+				helpers.push_back(helper);
+			}
+			// build scanner
+			Scanner* scanner = table->GetScanner(nullptr);
+			uchar cmps[table->ColNum()] = {0}; // Comparator::Any is 0
+			std::string constantValue;
+			for(auto helper_it = helpers.begin(); helper_it != helpers.end(); helper_it++){
+				if(!helper_it->hasRightCol){ // 'col = value' style
+					uchar leftColType = table->GetHeader()->attrType[helper_it->leftColID];
+					ushort leftColLength = table->GetHeader()->attrLenth[helper_it->leftColID];
+					if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
+						constantValue.append(helper_it->val.str);
+						constantValue.append(leftColLength - helper_it->val.str.length(), 0); // padding
 					}
 					else
-						memcpy(idxRecBuf + bufPos, (*list_it)[ColID].bytes, colLength);
-					bufPos += colLength;
+						constantValue.append((char*)helper_it->val.bytes, DataType::lengthOf(leftColType, leftColLength));
+					cmps[helper_it->leftColID] = helper_it->cmp;
 				}
-				if(primaryIdx->SafeValueSearch(idxRecBuf, &tmpRID)){ // primary key no unique
-					Global::newError(T5.pos, "Primary key conflict");
-					Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
-					delete primaryIdx; // don't forget this
-					return false;
+				else{ // 'col = col' style
+					scanner->AddSelfCmp(helper_it->leftColID, helper_it->rightColID, helper_it->cmp);
 				}
-				idxRecords.push_back(std::string((char*)idxRecBuf, idxRecLength));
 			}
+			scanner->SetDemand((uchar*)constantValue.data(), table->ColNum(), cmps);
+			// Print
+			scanner->PrintSelection(wantedCols);
+			delete scanner;
 		}
-		// now there is no error in input, start insertion
-		int idxRecPos = 0;
-		for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every valList, build a record
-			int arg_pos = 0;
-			memset(tmpRec.GetData(), 0, 4); // set null word to 0
-			for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){ // for every field, perpare its value
-				if(arg_it->type == DataType::NONE) // null value
-					setBitFromLeft(*(uint*)(tmpRec.GetData()), arg_pos);
-				else if(header->attrType[arg_pos] == DataType::VARCHAR && header->attrLenth[arg_pos] > 255){ // long varchar
-					uchar varcharBuf[header->attrLenth[arg_pos]] = {0};
-					ushort len = 0;
-					RID dftRID = RID(*(uint*)arg_it->bytes, *(uint*)(arg_it->bytes + 4));
-					Global::dbms->CurrentDatabase()->GetLongVarchar(dftRID, varcharBuf, len);
-					Global::dbms->CurrentDatabase()->InsertLongVarchar((const char*)varcharBuf, len, &dftRID);
-					*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos)) = dftRID.GetPageNum();
-					*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos) + 4) = dftRID.GetSlotNum();
-				}
-				else
-					memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->bytes, DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
-				arg_pos++;
-			}
-			table->InsertRecord(tmpRec.GetData(), &tmpRID);
-			// TODO: update index
-			if(primaryIdx){
-				primaryIdx->SafeInsert((const uchar*)idxRecords[idxRecPos++].data(), tmpRID);
-			}
+		else{
+			// TODO: multi-table query ?
 		}
-		Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 		return true;
 	}
 };

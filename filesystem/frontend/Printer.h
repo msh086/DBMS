@@ -4,6 +4,7 @@
 #include<vector>
 #include<string>
 #include<cstdio>
+#include "../RM/Record.h"
 
 class Printer{
     static void HorizontalLine(const int* maxWidth, int ColCount){
@@ -38,6 +39,8 @@ class Printer{
         }
         HorizontalLine(maxWidth, ColCount);
     }
+
+    static std::string FieldToStr(const Record& tmpRec, uchar type, uchar index, ushort length, uint offset);
 };
 
 #endif

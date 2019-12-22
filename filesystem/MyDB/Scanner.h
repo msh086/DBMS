@@ -2,6 +2,7 @@
 #define SCANNER_H
 #include "../RM/Record.h"
 #include "Table.h"
+#include "../frontend/Printer.h"
 #include<vector>
 /**
  * A scanner provides a read-only interface for getting records that meet certain requirements
@@ -31,8 +32,6 @@ class Scanner{
     };
 
     std::vector<SelfCmp> selfs;
-    uint offsets[MAX_COL_NUM] = {0};
-    bool offsetsBuilt = false;
 
     const static uchar uninitialized = 0, lambda = 1, arr = 2;
     uchar mode = uninitialized;
@@ -66,9 +65,8 @@ class Scanner{
                 record = table->GetRecord(*rid, rec); // Memory needs to be released
                 if(mode == lambda ? demand(*record) : DataType::compareArrMultiOp(record->GetData(), right, types, lengths, colNum, cmp, false, true)){ // right is constant
                     bool ok = true;
-                    assert(selfs.empty() || offsetsBuilt); // either no self cmp is used or offsets are already built, otherwise abort
                     for(auto it = selfs.begin(); it != selfs.end(); it++){
-                        if(!DataType::CompareFamily(types[it->left], types[it->right], record->GetData() + offsets[it->left], record->GetData() + offsets[it->right], 
+                        if(!DataType::CompareFamily(types[it->left], types[it->right], record->GetData() + table->ColOffset(it->left), record->GetData() + table->ColOffset(it->right), 
                             lengths[it->left], lengths[it->right], getBitFromLeft(*(uint*)record->GetData(), it->left), getBitFromLeft(*(uint*)record->GetData(), it->right), it->cmp)){
                             ok = false;
                             break;
@@ -84,7 +82,6 @@ class Scanner{
         }
 
         void SetDemand(bool(*demand)(const Record& record)){
-            offsetsBuilt = false;
             if(demand != nullptr)
                 this->mode = lambda;
             else
@@ -93,12 +90,11 @@ class Scanner{
         }
 
         void SetDemand(const uchar* right, int colNum, uchar* cmp){
-            offsetsBuilt = false;
             if(right != nullptr && cmp != nullptr){
                 this->mode = arr;
                 if(this->right != nullptr)
                     delete[] this->right;
-                int totalLength = DataType::calcTotalLength(types, lengths, colNum);
+                int totalLength = DataType::calcTotalLength(types, lengths, colNum); // colNum可能比记录的字段数少,不能直接使用recordenth
                 this->right = new uchar[totalLength];
                 this->colNum = colNum;
                 memcpy(this->right, right, totalLength);
@@ -107,39 +103,46 @@ class Scanner{
             else
                 this->mode = uninitialized;
         }
-
         /**
          * 不再让record中的字段和常量比较,而是和自身的另一个字段比较
          * 即attr_left cmp attr_right,selfs中的多个自比较之间的关系为'且'
         */
         void AddSelfCmp(uchar left, uchar right, uchar cmp){
             selfs.push_back(SelfCmp(left, right, cmp));
-            offsetsBuilt = false;
         }
-
         /**
          * 清空自比较列表
         */
         void ClearSelfCmp(){
             selfs.clear();
         }
-
         /**
-         * 计算好各个字段的偏移,以便自比较使用
+         * 遍历表,输出符合要求的记录的指定字段
         */
-        void BuildOffsets(){
-            DataType::calcOffsets(types, lengths, colNum, offsets);
-            offsetsBuilt = true;
+        void PrintSelection(const std::vector<uchar>& selected){
+            std::vector<std::vector<std::string>> tb;
+            int colCount = selected.size();
+            tb.push_back(std::vector<std::string>());
+            for(auto select_it = selected.begin(); select_it != selected.end(); select_it++)
+                tb[0].push_back(std::string((char*)table->GetHeader()->attrName[*select_it], strnlen((char*)table->GetHeader()->attrName[*select_it], MAX_ATTRI_NAME_LEN)));
+            int rowCount = 1; // the top row
+            Record tmpRec;
+            while(NextRecord(&tmpRec)){
+                std::vector<std::string> tmpRow;
+                for(auto select_it = selected.begin(); select_it != selected.end(); select_it++)
+                    tmpRow.push_back(Printer::FieldToStr(tmpRec, table->GetHeader()->attrType[*select_it], *select_it, table->GetHeader()->attrLenth[*select_it], table->ColOffset(*select_it)));
+                tb.push_back(tmpRow);
+                rowCount++;
+            }
+            Printer::PrintTable(tb, colCount, rowCount);
         }
-
         /**
-         * 重置scanner于表的最开始
+        * 重置scanner于表的最开始
         */
         void Reset(){
             rid->PageNum = 1;
             rid->SlotNum = 0;
         }
-
         ~Scanner(){
             delete rid;
             if(right != nullptr)

@@ -23,8 +23,8 @@ class DBMS{
         bool databaseExists(const char* databaseName){
             uchar cmp = Comparator::Eq;
             // pad the databaseName to full length, so that comparison can take place correctly
-            uchar buf[MAX_DB_NAME_LEN] = "";
-            memcpy(buf, databaseName, strlen(databaseName));
+            uchar buf[MAX_DB_NAME_LEN + 4] = ""; // ? null word
+            memcpy(buf + 4, databaseName, strlen(databaseName));
             rec->FreeMemory();
             scanner->SetDemand(buf, 1, &cmp);
             if(scanner->NextRecord(rec)){
@@ -78,9 +78,9 @@ class DBMS{
                 }
                 uchar* buffer = new uchar[PAGE_SIZE]{};
                 Header* header = new Header();
-                header->recordLenth = MAX_DB_NAME_LEN;
+                header->recordLenth = MAX_DB_NAME_LEN + 4; // ? null word
                 header->slotNum = PAGE_SIZE / header->recordLenth;
-                header->attrLenth[0] = header->recordLenth;
+                header->attrLenth[0] = MAX_DB_NAME_LEN;
                 header->attrType[0] = DataType::CHAR;
                 header->nullMask = 0;
                 //handle default record, which always exists not matter the value of defaultKeyMask
@@ -112,8 +112,8 @@ class DBMS{
         bool CreateDatabase(const char* databaseName){
             if(databaseExists(databaseName))
                 return false;
-            uchar buf[MAX_DB_NAME_LEN] = {0};
-            memcpy(buf, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
+            uchar buf[MAX_DB_NAME_LEN + 4] = {0}; // ? null word
+            memcpy(buf + 4, databaseName, strnlen(databaseName, MAX_DB_NAME_LEN));
             createDir(databaseName);
             tb->InsertRecord(buf, rid);
             return true;
@@ -149,7 +149,7 @@ class DBMS{
                 tb->DeleteRecord(*rec->GetRid()); // 如果databaseExists返回true，对应记录的RID和数据会被存到rec里
                 // delete file and folder
                 int db_info_fid;
-                char buf[MAX_DB_NAME_LEN + 1 + 6] = ""; // ? Hard encoding, 6 = strlen(DB_RESERVED_TABLE_NAME)
+                char buf[MAX_DB_NAME_LEN + 1 + MAX_TABLE_NAME_LEN] = "";
                 sprintf(buf, "%s/%s", databaseName, DB_RESERVED_TABLE_NAME);
                 bool openRet = fm->openFile(buf, db_info_fid);
                 if(!openRet) // target database has never been used, which means there is only an empty directory

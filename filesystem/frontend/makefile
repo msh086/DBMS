@@ -58,3 +58,7 @@ clean :
 .PHONY : reset
 reset :
 	- rm -rf ../../run/*
+
+.PHONY : all
+all : reset clean main
+	

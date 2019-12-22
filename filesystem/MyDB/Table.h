@@ -290,7 +290,7 @@ class Table{
                     fkSlaveCount++;
             idxCount = 0;
             for(int i = 0; i < MAX_INDEX_NUM; i++)
-                if(header->indexID[i] == 0)
+                if(header->indexID[i][0] == COL_ID_NONE)
                     break;
                 else
                     idxCount++;
@@ -426,6 +426,20 @@ class Table{
         }
 
         /**
+         * Given the columns to match, return the best index for it(bptree page)
+         * 可以使用索引的情况:
+         * 查询列为c1, c2, ..., ck
+         * 且条件为c1:eq, c2:eq, ..., ck:range
+         * 且存在索引(c1, c2, ..., ck, ck+1, ...)
+        */
+        uint BestIndexFor(uint cols){
+            uint ans = 0;
+            for(int i = 0; i < idxCount; i++){
+                
+            }
+        }
+
+        /**
          * Caution, this action writes back data not only in this table, but all the tables
         */
         void WriteBack(){ 
@@ -473,14 +487,13 @@ class Table{
         /**
          * Create index on cols
          * Checked: name conflict, not more room, cols illegal
-         * ! Unchecked: if cols == 0, name length illegal
+         * ? 索引列的顺序是有意义的,不能用位图表示
         */
-        int CreateIndexOn(uint cols, const char* idxName);
+        int CreateIndexOn(std::vector<uchar>, const char* idxName);
 
         /**
          * Remove index by name
          * Checked: idx not found
-         * ! Unchecked: name length illegal
         */
         bool RemoveIndex(const char* idxName);
 
