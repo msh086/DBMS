@@ -5,6 +5,7 @@
 #include<cstring>
 #include<stdio.h>
 #include<stdarg.h>
+#include "Type.h"
 
 class DBMS;
 
@@ -33,6 +34,9 @@ class Global{
 		static DBMS* dbms;
 		static char formatBuffer[100];
 		static bool exitSign;
+		static std::vector<Type> types;
+		static bool errorSign;
+		static bool (*action)(std::vector<Type>& types);
 		static void newError(int pos, const char* str){
 			errors.push_back(Error(pos, std::string(str)));
 		}

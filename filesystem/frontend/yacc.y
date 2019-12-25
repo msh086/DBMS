@@ -55,31 +55,32 @@ Start		:	Stmt
 Stmt		:	SysStmt ';'
 				{
 					printf("YACC: sys\n");
-					if(!$$.action($$.typeBuf))
-						YYABORT;
+					Global::types = $1.typeBuf;
+					Global::action = $1.action;
 				}
 			| 	DbStmt ';'
 				{
 					printf("YACC: db\n");
-					if(!$$.action($$.typeBuf))
-						YYABORT;
+					Global::types = $1.typeBuf;
+					Global::action = $1.action;
 				}
 			| 	TbStmt ';'
 				{
 					printf("YACC: tb\n");
-					$$.action($$.typeBuf);
+					Global::types = $1.typeBuf;
+					Global::action = $1.action;
 				}
 			|	 IdxStmt ';'
 				{
 					printf("YACC: idx\n");
-					if(!$$.action($$.typeBuf))
-						YYABORT;
+					Global::types = $1.typeBuf;
+					Global::action = $1.action;
 				}
 			| 	AlterStmt ';'
 				{
 					printf("YACC: alter\n");
-					if(!$$.action($$.typeBuf))
-						YYABORT;
+					Global::types = $1.typeBuf;
+					Global::action = $1.action;
 				}
 			| 	EXIT ';'
 				{
@@ -284,12 +285,12 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								int masterColIndex = master->IDofCol(it->IDList[2].data());
 								if(masterColIndex == COL_ID_NONE){
 									Global::newError(T5.pos, Global::format("No field named %s in table %s", it->IDList[2].data(), it->IDList[1].data()));
-									Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // remember to close table after use
+									// Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // remember to close table after use
 									return false;
 								}
 								if(fkIndex == MAX_REF_SLAVE_TIME){
 									Global::newError(T5.pos, Global::format("A table can reference other tables in foreign key constraint no more than %d times", MAX_REF_SLAVE_TIME));
-									Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data());
+									// Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data());
 									return false;
 								}
 								// update header, this fk constraint is anonymous
@@ -297,7 +298,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								header.masterKeyID[fkIndex] = 1 << (31 - masterColIndex);
 								header.slaveKeyID[fkIndex] = 1 << (31 - getNameIndex(it->IDList[0].data()));
 								fkIndex++;
-								Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // never forget to close a table after use
+								// Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data()); // never forget to close a table after use
 							}
 						}
 						// build default record
@@ -338,7 +339,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								if(it->isFK){
 									Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1].data());
 									master->AddFKSlave(tableIdx);
-									Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data());
+									// Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data());
 									// too many fkslaves?
 									// TODO: record fkslaves as (table id, times), which requires MAX_TB_NUM * 2 bytes and make fkSlaves overflow almost impossible
 								}
@@ -347,7 +348,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								Table* newTable = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
 								int idxRet = newTable->CreateIndexOn(primaryCols, PRIMARY_RESERVED_IDX_NAME);
 								assert(idxRet == 0);
-								Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+								// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 							}
 						}
 						return true;
@@ -400,7 +401,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							return false;
 						}
 						table->Print();
-						Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+						// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 					};
 				}
 			|	INSERT INTO IDENTIFIER VALUES valueLists // valueLists = '(' valueList ')' (',' '(' valueList ')')*, 用于一次插入多条记录
@@ -436,12 +437,12 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){
 								if(arg_pos == MAX_COL_NUM || header->attrType[arg_pos] == DataType::NONE){
 									Global::newError(T5.pos, Global::format("Incompatible field num, %d expected, %d given", arg_pos, list_it->size()));
-									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data()); // remember to close table before exit
+									// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data()); // remember to close table before exit
 									return false;
 								}
 								if(!Type::ConvertValue(TT.val, header->attrType[arg_pos], header->attrLenth[arg_pos], *arg_it, getBitFromLeft(header->nullMask, arg_pos))){
 									Global::newError(T5.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, header->attrName[arg_pos]));
-									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+									// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 									return false;
 								}
 								if(arg_it->type == DataType::NONE) // null value
@@ -454,7 +455,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							while(arg_pos < MAX_COL_NUM && header->attrType[arg_pos] != DataType::NONE){
 								if(!getBitFromLeft(header->defaultKeyMask, arg_pos)){
 									Global::newError(T5.pos, Global::format("No default value for field %.*s", MAX_ATTRI_NAME_LEN, header->attrName[arg_pos]));
-									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+									// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 									return false;
 								}
 								else{
@@ -503,7 +504,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								}
 								if(primaryIdx->SafeValueSearch(idxRecBuf, &tmpRID)){ // primary key no unique
 									Global::newError(T5.pos, "Primary key conflict");
-									Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+									// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 									delete primaryIdx; // don't forget this
 									return false;
 								}
@@ -537,7 +538,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								primaryIdx->SafeInsert((const uchar*)idxRecords[idxRecPos++].data(), tmpRID);
 							}
 						}
-						Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+						// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 						return true;
 					};
 				}
@@ -549,147 +550,158 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 			|	UPDATE IDENTIFIER SET setClause WHERE whereClause // 不涉及多表; set col = value, 不会出现set col = col
 				{
 					printf("YACC: update tb\n");
-					if(!Global::dbms->CurrentDatabase()){
-						Global::newError($1.pos, "No available database");
-						return false;
-					}
-					if($2.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::newError($2.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
-						return false;
-					}
-					Table* table = Global::dbms->CurrentDatabase()->OpenTable($2.val.str.data());
-					if(!table){
-						Global::newError($2.pos, Global::format("No table named %s", $2.val.str.data()));
-						return false;
-					}
-					// check setClause validity
-					std::vector<SetHelper> setHelpers;
-					for(auto set_it = $4.setList.begin(); set_it != $4.setList.end(); set_it++){
-						if(set_it->colName.length() > MAX_ATTRI_NAME_LEN){
-							Global::newError($2.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
-							Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
+					$$.typeBuf.push_back($1);
+					$$.typeBuf.push_back($2);
+					$$.typeBuf.push_back($4);
+					$$.typeBuf.push_back($6);
+					$$.action = Debugger::debug;
+					/*
+					$$.action = [](std::vector<Type>& typeVec)->bool{
+						Type &T1 = typeVec[0], &T2 = typeVec[1], &T4 = typeVec[2], &T6 = typeVec[3];
+						if(!Global::dbms->CurrentDatabase()){
+							Global::newError(T1.pos, "No available database");
 							return false;
 						}
-						uchar setColID = table->IDofCol(set_it->colName.data());
-						if(setColID == COL_ID_NONE){
-							Global::newError($4.pos, Global::format("Unknown field %s", set_it->colName.data()));
-							Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
+						if(T2.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::newError(T2.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
 							return false;
 						}
-						SetHelper helper;
-						if(!Type::ConvertValue(helper.value, table->GetHeader()->attrType[setColID], table->GetHeader()->attrLenth[setColID], set_it->value, getBitFromLeft(table->GetHeader()->nullMask, setColID))){
-							Global::newError($4.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[setColID]));
-							Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T2.val.str.data());
+						if(!table){
+							Global::newError(T2.pos, Global::format("No table named %s", T2.val.str.data()));
 							return false;
 						}
-						// TODO: check foreign constraints
-						helper.colID = setColID;
-						setHelpers.push_back(helper);
-					}
-					// check whereClause validity
-					std::vector<SelectHelper> helpers;
-					for(auto where_it = $6.condList.begin(); where_it != $6.condList.end(); where_it++){
-						if(where_it->column.tableName.length() && where_it->column.tableName != $2.val.str){
-							Global::newError($6.pos, Global::format("Irrelevant table %s", where_it->column.tableName.data()));
-							Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
-							return false;
-						}
-						if(where_it->isExprCol && where_it->exprCol.tableName.length() && where_it->exprCol.tableName != $2.val.str){
-							Global::newError($6.pos, Global::format("Irrelevant table %s", where_it->exprCol.tableName.data()));
-							Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
-							return false;
-						}
-						uchar colIDLeft = table->IDofCol(where_it->column.colName.data());
-						if(colIDLeft == COL_ID_NONE){
-							Global::newError($6.pos, Global::format("Unknown field %s", where_it->column.colName.data()));
-							Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
-							return false;
-						}
-						uchar colIDRight = COL_ID_NONE;
-						if(where_it->isExprCol){
-							colIDRight = table->IDofCol(where_it->exprCol.colName.data());
-							if(colIDRight == COL_ID_NONE){
-								Global::newError($6.pos, Global::format("Unknown field %s", where_it->exprCol.colName.data()));
-								Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
+						// check setClause validity
+						std::vector<SetHelper> setHelpers;
+						for(auto set_it = T4.setList.begin(); set_it != T4.setList.end(); set_it++){
+							if(set_it->colName.length() > MAX_ATTRI_NAME_LEN){
+								Global::newError(T2.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
+								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 								return false;
 							}
+							uchar setColID = table->IDofCol(set_it->colName.data());
+							if(setColID == COL_ID_NONE){
+								Global::newError(T4.pos, Global::format("Unknown field %s", set_it->colName.data()));
+								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+								return false;
+							}
+							SetHelper helper;
+							if(!Type::ConvertValue(helper.value, table->GetHeader()->attrType[setColID], table->GetHeader()->attrLenth[setColID], set_it->value, getBitFromLeft(table->GetHeader()->nullMask, setColID))){
+								Global::newError(T4.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[setColID]));
+								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+								return false;
+							}
+							// TODO: check foreign constraints
+							helper.colID = setColID;
+							setHelpers.push_back(helper);
 						}
-						SelectHelper helper;
-						helper.leftColID = colIDLeft;
-						helper.rightColID = colIDRight;
-						helper.cmp = where_it->cmp;
-						if(!where_it->isExprCol){ // col = value, convert value into binary
-							if(!Type::ConvertValue(helper.val, table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrLenth[colIDLeft], 
-								where_it->exprVal, getBitFromLeft(table->GetHeader()->nullMask, colIDLeft))){
-									Global::newError($6.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft]));
-									Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
+						// check whereClause validity
+						std::vector<SelectHelper> helpers;
+						for(auto where_it = T6.condList.begin(); where_it != T6.condList.end(); where_it++){
+							if(where_it->column.tableName.length() && where_it->column.tableName != T2.val.str){
+								Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->column.tableName.data()));
+								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+								return false;
+							}
+							if(where_it->isExprCol && where_it->exprCol.tableName.length() && where_it->exprCol.tableName != T2.val.str){
+								Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->exprCol.tableName.data()));
+								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+								return false;
+							}
+							uchar colIDLeft = table->IDofCol(where_it->column.colName.data());
+							if(colIDLeft == COL_ID_NONE){
+								Global::newError(T6.pos, Global::format("Unknown field %s", where_it->column.colName.data()));
+								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+								return false;
+							}
+							uchar colIDRight = COL_ID_NONE;
+							if(where_it->isExprCol){
+								colIDRight = table->IDofCol(where_it->exprCol.colName.data());
+								if(colIDRight == COL_ID_NONE){
+									Global::newError(T6.pos, Global::format("Unknown field %s", where_it->exprCol.colName.data()));
+									// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 									return false;
 								}
-						}
-						else{ // col = col, check type compatility
-							if(!DataType::Comparable(table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrType[colIDRight])){
-								Global::newError($6.pos, Global::format("Field %.*s and %.*s are incomparable", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft], 
-									MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDRight]));
-								Global::dbms->CurrentDatabase()->CloseTable($2.val.str.data());
-								return false;
 							}
-						}
-						helper.hasRightCol = where_it->isExprCol;
-						helpers.push_back(helper);
-					}
-					// build scanner
-					Scanner* scanner = table->GetScanner(nullptr);
-					uchar cmps[table->ColNum()] = {0}; // Comparator::Any is 0
-					std::string constantValue;
-					for(auto helper_it = helpers.begin(); helper_it != helpers.end(); helper_it++){
-						if(!helper_it->hasRightCol){ // 'col = value' style
-							uchar leftColType = table->GetHeader()->attrType[helper_it->leftColID];
-							ushort leftColLength = table->GetHeader()->attrLenth[helper_it->leftColID];
-							if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
-								constantValue.append(helper_it->val.str);
-								constantValue.append(leftColLength - helper_it->val.str.length(), 0); // padding
-							}
-							else
-								constantValue.append((char*)helper_it->val.bytes, DataType::lengthOf(leftColType, leftColLength));
-							cmps[helper_it->leftColID] = helper_it->cmp;
-						}
-						else{ // 'col = col' style
-							scanner->AddSelfCmp(helper_it->leftColID, helper_it->rightColID, helper_it->cmp);
-						}
-					}
-					scanner->SetDemand((uchar*)constantValue.data(), table->ColNum(), cmps);
-					// update
-					Record tmpRec;
-					while(scanner->NextRecord(&tmpRec)){
-						for(auto set_it = setHelpers.begin(); set_it != setHelpers.end(); set_it++){
-							uchar setColType = table->GetHeader()->attrType[set_it->colID];
-							if(set_it->value.type == DataType::NONE){ // use val type
-								setBitFromLeft(*(uint*)tmpRec.GetData(), set_it->colID);
-							}
-							else{
-								if(setColType == DataType::CHAR){ // use field type
-									memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.str.data(), set_it->value.str.length());
-									memset(tmpRec.GetData() + table->ColOffset(set_it->colID) + set_it->value.str.length(), 0, 
-										table->GetHeader()->attrLenth[set_it->colID] - set_it->value.str.length());
-								}
-								else if(setColType == DataType::VARCHAR){ // use field type
-									if(table->GetHeader()->attrLenth[set_it->colID] > 255){
-										RID tmpRID;
-										Global::dbms->CurrentDatabase()->InsertLongVarchar(set_it->value.str.data(), set_it->value.str.length(), &tmpRID);
-										*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID)) = tmpRID.GetPageNum();
-										*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID + 4)) = tmpRID.GetSlotNum();
+							SelectHelper helper;
+							helper.leftColID = colIDLeft;
+							helper.rightColID = colIDRight;
+							helper.cmp = where_it->cmp;
+							if(!where_it->isExprCol){ // col = value, convert value into binary
+								if(!Type::ConvertValue(helper.val, table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrLenth[colIDLeft], 
+									where_it->exprVal, getBitFromLeft(table->GetHeader()->nullMask, colIDLeft))){
+										Global::newError(T6.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft]));
+										// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+										return false;
 									}
+							}
+							else{ // col = col, check type compatility
+								if(!DataType::Comparable(table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrType[colIDRight])){
+									Global::newError(T6.pos, Global::format("Field %.*s and %.*s are incomparable", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft], 
+										MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDRight]));
+									// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+									return false;
+								}
+							}
+							helper.hasRightCol = where_it->isExprCol;
+							helpers.push_back(helper);
+						}
+						// build scanner
+						Scanner* scanner = table->GetScanner(nullptr);
+						uchar cmps[table->ColNum()] = {0}; // Comparator::Any is 0
+						std::string constantValue;
+						for(auto helper_it = helpers.begin(); helper_it != helpers.end(); helper_it++){
+							if(!helper_it->hasRightCol){ // 'col = value' style
+								uchar leftColType = table->GetHeader()->attrType[helper_it->leftColID];
+								ushort leftColLength = table->GetHeader()->attrLenth[helper_it->leftColID];
+								if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
+									constantValue.append(helper_it->val.str);
+									constantValue.append(leftColLength - helper_it->val.str.length(), 0); // padding
+								}
+								else
+									constantValue.append((char*)helper_it->val.bytes, DataType::lengthOf(leftColType, leftColLength));
+								cmps[helper_it->leftColID] = helper_it->cmp;
+							}
+							else{ // 'col = col' style
+								scanner->AddSelfCmp(helper_it->leftColID, helper_it->rightColID, helper_it->cmp);
+							}
+						}
+						scanner->SetDemand((uchar*)constantValue.data(), table->ColNum(), cmps);
+						// update
+						Record tmpRec;
+						while(scanner->NextRecord(&tmpRec)){
+							for(auto set_it = setHelpers.begin(); set_it != setHelpers.end(); set_it++){
+								uchar setColType = table->GetHeader()->attrType[set_it->colID];
+								if(set_it->value.type == DataType::NONE){ // use val type
+									setBitFromLeft(*(uint*)tmpRec.GetData(), set_it->colID);
 								}
 								else{
-									memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.bytes, 
-										DataType::lengthOf(table->GetHeader()->attrType[set_it->colID], table->GetHeader()->attrType[set_it->colID]));
+									if(setColType == DataType::CHAR){ // use field type
+										memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.str.data(), set_it->value.str.length());
+										memset(tmpRec.GetData() + table->ColOffset(set_it->colID) + set_it->value.str.length(), 0, 
+											table->GetHeader()->attrLenth[set_it->colID] - set_it->value.str.length());
+									}
+									else if(setColType == DataType::VARCHAR){ // use field type
+										if(table->GetHeader()->attrLenth[set_it->colID] > 255){
+											RID tmpRID;
+											Global::dbms->CurrentDatabase()->InsertLongVarchar(set_it->value.str.data(), set_it->value.str.length(), &tmpRID);
+											*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID)) = tmpRID.GetPageNum();
+											*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID + 4)) = tmpRID.GetSlotNum();
+										}
+									}
+									else{
+										memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.bytes, 
+											DataType::lengthOf(table->GetHeader()->attrType[set_it->colID], table->GetHeader()->attrType[set_it->colID]));
+									}
 								}
+								table->UpdateRecord(*tmpRec.GetRid(), tmpRec.GetData(), 0, 0, table->GetHeader()->recordLenth);
+								tmpRec.FreeMemory();
 							}
-							table->UpdateRecord(*tmpRec.GetRid(), tmpRec.GetData(), 0, 0, table->GetHeader()->recordLenth);
-							tmpRec.FreeMemory();
 						}
-					}
-					delete scanner;
+						delete scanner;
+						return true;
+					};
+					*/
 				}
 			| 	SELECT selector FROM IdList WHERE whereClause
 				{
@@ -720,13 +732,13 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								for(auto col_it = T2.colList.begin(); col_it != T2.colList.end(); col_it++){
 									if(col_it->tableName.length() && col_it->tableName != T4.IDList[0]){
 										Global::newError(T2.pos, Global::format("Irrelevant table %s", col_it->tableName.data()));
-										Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
 									uchar tmpColID = table->IDofCol(col_it->colName.data());
 									if(tmpColID == COL_ID_NONE){
 										Global::newError(T2.pos, Global::format("Unknown field %s", col_it->colName.data()));
-										Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
 									wantedCols.push_back(tmpColID);
@@ -743,18 +755,18 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							for(auto where_it = T6.condList.begin(); where_it != T6.condList.end(); where_it++){
 								if(where_it->column.tableName.length() && where_it->column.tableName != T4.IDList[0]){
 									Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->column.tableName.data()));
-									Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+									// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 									return false;
 								}
 								if(where_it->isExprCol && where_it->exprCol.tableName.length() && where_it->exprCol.tableName != T4.IDList[0]){
 									Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->exprCol.tableName.data()));
-									Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+									// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 									return false;
 								}
 								uchar colIDLeft = table->IDofCol(where_it->column.colName.data());
 								if(colIDLeft == COL_ID_NONE){
 									Global::newError(T6.pos, Global::format("Unknown field %s", where_it->column.colName.data()));
-									Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+									// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 									return false;
 								}
 								uchar colIDRight = COL_ID_NONE;
@@ -762,7 +774,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									colIDRight = table->IDofCol(where_it->exprCol.colName.data());
 									if(colIDRight == COL_ID_NONE){
 										Global::newError(T6.pos, Global::format("Unknown field %s", where_it->exprCol.colName.data()));
-										Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
 								}
@@ -774,7 +786,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									if(!Type::ConvertValue(helper.val, table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrLenth[colIDLeft], 
 										where_it->exprVal, getBitFromLeft(table->GetHeader()->nullMask, colIDLeft))){
 											Global::newError(T6.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft]));
-											Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+											// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 											return false;
 										}
 								}
@@ -782,7 +794,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									if(!DataType::Comparable(table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrType[colIDRight])){
 										Global::newError(T6.pos, Global::format("Field %.*s and %.*s are incomparable", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft], 
 											MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDRight]));
-										Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
 								}
@@ -849,13 +861,13 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								for(auto col_it = T2.colList.begin(); col_it != T2.colList.end(); col_it++){
 									if(col_it->tableName.length() && col_it->tableName != T4.IDList[0]){
 										Global::newError(T2.pos, Global::format("Irrelevant table %s", col_it->tableName.data()));
-										Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
 									uchar tmpColID = table->IDofCol(col_it->colName.data());
 									if(tmpColID == COL_ID_NONE){
 										Global::newError(T2.pos, Global::format("Unknown field %s", col_it->colName.data()));
-										Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
 									wantedCols.push_back(tmpColID);
@@ -1413,4 +1425,5 @@ IdList		:	IDENTIFIER
 void yyerror(const char *s)			//当yacc遇到语法错误时，会回调yyerror函数，并且把错误信息放在参数s中
 {
 	printf("Error: %s near %d\n", s, Global::pos);					//直接输出错误信息
+	Global::errorSign = true;
 }

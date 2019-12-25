@@ -27,11 +27,23 @@ int main(){
         // fseek(tmp, 0, SEEK_SET);
 	    int res = yyparse();						//使yacc开始读取输入和解析，它会调用lex的yylex()读取记号
         // parsing errors
-        if(!Global::errors.empty()){
+        bool ok = true;
+        if(Global::errorSign){ // syntax error
+            ok = false;
+            Global::errorSign = false;
+        }
+        if(ok && !Global::exitSign){
+            Global::action(Global::types);
+            Global::dbms->CurrentDatabase()->CloseTables();
+        }
+        if(!Global::errors.empty()){ // syntax ok, content error
+            ok = false;
             for(auto it = Global::errors.begin(); it != Global::errors.end(); it++)
                 printf("syntax error at %d: %s\n", it->pos, it->msg.data());
             Global::errors.clear();
         }
+        if(!ok)
+            Global::exitSign = false;
         if(Global::exitSign){
             Global::dbms->Close();
             return 0;
