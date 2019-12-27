@@ -30,10 +30,22 @@ std::string Printer::FieldToStr(const Record& tmpRec, uchar type, uchar index, u
                 string str;
                 if(hasSign)
                     str.push_back('-');
-                str.append((char*)buf, p - dotPos);
-                if(dotPos)
+                // convert digit to ascii
+                bool firstNonZero = false;
+                for(int i = 0; i < p - dotPos; i++){
+                    if(firstNonZero)
+                        str.push_back(buf[i] + '0');
+                    else if(buf[i]){
+                        firstNonZero = true;
+                        str.push_back(buf[i] + '0');
+                    }
+                }
+                if(!firstNonZero)
+                    str.push_back('0');
+                if(dotPos){
                     str.push_back('.');
-                str.append((char*)(buf + p - dotPos), dotPos);
+                    str.append((char*)(buf + p - dotPos), dotPos);
+                }
                 return str;
             }
             case DataType::DATE:{

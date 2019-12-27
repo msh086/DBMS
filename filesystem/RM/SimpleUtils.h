@@ -1,5 +1,5 @@
-#ifndef MATHUTILS_H
-#define MATHUTILS_H
+#ifndef SIMPLEUTILS_H
+#define SIMPLEUTILS_H
 #include <cstring>
 #include "../utils/pagedef.h"
 

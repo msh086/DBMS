@@ -1,6 +1,6 @@
 //lex.l和yacc.y共同使用的头文件
-#ifndef MAIN_HPP
-#define MAIN_HPP
+#ifndef MAIN_H
+#define MAIN_H
 
 #include <string>
 #include <set>
@@ -11,7 +11,6 @@
 #include "Global.h" // lexer的辅助静态类
 #include "../RM/DataType.h"
 #include "Field.h"
-#include "../MyDB/DBMS.h"
 #include "../RM/SimpleUtils.h"
 #include "../indexing/BplusTree.h"
 
@@ -28,156 +27,180 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 yylval是用YYSTYPE宏定义的，只要重定义YYSTYPE宏，就能重新指定yylval的类型(可参见yacc自动生成的头文件yacc.tab.h)。
 在我们的例子里，当识别出标识符后要向yacc传递这个标识符串，yylval定义成整型不太方便(要先强制转换成整型，yacc里再转换回char*)。
 这里把YYSTYPE重定义为struct Type，可存放多种信息*/
-// enum Keyword{DATABASE, DATABASES, TABLE, TABLES, SHOW, CREATE, DROP, USE, PRIMARY, KEY, NOT, KW_NULL, INSERT, INTO, VALUES, DELETE, FROM, WHERE, UPDATE, SET, 
-// 	SELECT, IS, INT, VARCHAR, CHAR, DEFAULT, CONSTRAINT, CHANGE, ALTER, ADD, RENAME, DESC, INDEX, AND, DATE, FLOAT, FOREIGN, REFERENCES, NUMERIC, DECIMAL};
 
-
-
-struct Debugger{
-	static bool debug(std::vector<Type> &typeVec){
-		Type &T1 = typeVec[0], &T2 = typeVec[1], &T4 = typeVec[2], &T6 = typeVec[3];
-		if(!Global::dbms->CurrentDatabase()){
-			Global::newError(T1.pos, "No available database");
+/**
+ * yacc中调用的一系列静态函数,用于避免频繁的复制粘贴
+*/
+struct ParsingHelper{
+	/**
+	 * 将 @param value 的值转换为 @param type 类型,并存储到dst内
+	 * 返回转换是否成功
+	 * @param length 应为原始长度,不是内存长度
+	 * NOTE: dst.type会被赋值为value.type,即目标Val的类型是源Val类型,而非字段类型
+	*/
+	static bool ConvertValue(Val& dst, uchar type, ushort length, const Val& value, bool nullable){
+		dst.type = value.type;
+		// decide subtype
+		if(value.type == DataType::NONE){ // value is null
+			if(nullable)
+				return true;
+			else
+				return false;
+		}
+		if(value.type == DataType::INT && type == DataType::BIGINT){
+			*(ll*)dst.bytes = *(int*)value.bytes;
+		}
+		else if(value.type == DataType::INT && type == DataType::FLOAT){
+			*(float*)dst.bytes = *(int*)value.bytes;
+		}
+		else if(value.type == DataType::FLOAT && type == DataType::NUMERIC){
+			int byteNum = DataType::lengthOf(DataType::NUMERIC, length);
+			DataType::floatToBin(*(const float*)value.bytes < 0, value.str.data(), value.str.find('.'), dst.bytes, length >> 8, length & 0xff);
+		}
+		else if(value.type == DataType::INT && type == DataType::NUMERIC){
+			int byteNum = DataType::lengthOf(DataType::NUMERIC, length);
+			DataType::floatToBin(*(const int*)value.bytes < 0, value.str.data(), value.str.length(), dst.bytes, length >> 8, length & 0xff);
+		}
+		else if(value.type == DataType::BIGINT && type == DataType::NUMERIC){
+			int byteNum = DataType::lengthOf(DataType::NUMERIC, length);
+			DataType::floatToBin(*(ll*)value.bytes < 0, value.str.data(), value.str.length(), dst.bytes, length >> 8, length & 0xff);
+		}
+		else if(value.type == DataType::CHAR && type == DataType::VARCHAR && value.str.length() <= length){
+			dst.str = value.str;
+		}
+		else if(value.type == DataType::CHAR && type == DataType::CHAR && value.str.length() <= length){
+			dst.str = value.str;
+		}
+		else if(value.type == DataType::VARCHAR && type == DataType::VARCHAR && value.str.length() <= length){
+			dst.str = value.str;
+		}
+		else if(value.type == type){
+			if(type == DataType::INT){
+				*(int*)dst.bytes = *(int*)value.bytes;
+			}
+			else if(type == DataType::BIGINT){
+				*(ll*)dst.bytes = *(ll*)value.bytes;
+			}
+			else if(type == DataType::FLOAT){
+				*(float*)dst.bytes = *(float*)value.bytes;
+			}
+			else if(type == DataType::DATE){
+				memcpy(dst.bytes, value.bytes, 3);
+			}
+			else
+				return false;
+			// a value will only be parsed as float, not numeric
+			// varchar and char are solved previously, char and varchar with incompatible length will reach here
+		}
+		else
 			return false;
-		}
-		if(T2.val.str.length() > MAX_TABLE_NAME_LEN){
-			Global::newError(T2.pos, Global::format("Table name should be no longer than %d", MAX_TABLE_NAME_LEN));
-			return false;
-		}
-		Table* table = Global::dbms->CurrentDatabase()->OpenTable(T2.val.str.data());
-		if(!table){
-			Global::newError(T2.pos, Global::format("No table named %s", T2.val.str.data()));
-			return false;
-		}
-		// check setClause validity
-		std::vector<SetHelper> setHelpers;
-		for(auto set_it = T4.setList.begin(); set_it != T4.setList.end(); set_it++){
-			if(set_it->colName.length() > MAX_ATTRI_NAME_LEN){
-				Global::newError(T2.pos, Global::format("Field name should be no longer than %d", MAX_ATTRI_NAME_LEN));
-				Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+		return true;
+	}
+	/**
+	 * 检查where子句的合法性,并将结果汇总
+	 * @param helpers 一个SelectHelper的向量,存储所有'col = col'类型的条件
+	 * @param whereHelpersCol 一个SelectHelper向量的数组,为每个字段存储'col = value'类型的条件
+	 * @param cmpUnitsNeeded 整数,Scanner中最多需要的CmpUnit个数
+	 * @param tbname string类型,表名
+	 * @param whereClause Type类型,对应where字句
+	 * @param table 执行(update, delete, select)操作的表
+	*/
+	static bool checkWhereClause(std::vector<SelectHelper>& helpers, std::vector<SelectHelper>* whereHelpersCol, int& cmpUnitsNeeded, std::string& tbname, Type& whereClause, Table* table){
+		for(auto where_it = whereClause.condList.begin(); where_it != whereClause.condList.end(); where_it++){
+			if(where_it->column.tableName.length() && where_it->column.tableName != tbname){
+				Global::IrrelevantTable(whereClause.pos, where_it->column.tableName.data());
 				return false;
 			}
-			uchar setColID = table->IDofCol(set_it->colName.data());
-			if(setColID == COL_ID_NONE){
-				Global::newError(T4.pos, Global::format("Unknown field %s", set_it->colName.data()));
-				Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
-				return false;
-			}
-			SetHelper helper;
-			if(!Type::ConvertValue(helper.value, table->GetHeader()->attrType[setColID], table->GetHeader()->attrLenth[setColID], set_it->value, getBitFromLeft(table->GetHeader()->nullMask, setColID))){
-				Global::newError(T4.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[setColID]));
-				Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
-				return false;
-			}
-			// TODO: check foreign constraints
-			helper.colID = setColID;
-			setHelpers.push_back(helper);
-		}
-		// check whereClause validity
-		std::vector<SelectHelper> helpers;
-		for(auto where_it = T6.condList.begin(); where_it != T6.condList.end(); where_it++){
-			if(where_it->column.tableName.length() && where_it->column.tableName != T2.val.str){
-				Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->column.tableName.data()));
-				Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
-				return false;
-			}
-			if(where_it->isExprCol && where_it->exprCol.tableName.length() && where_it->exprCol.tableName != T2.val.str){
-				Global::newError(T6.pos, Global::format("Irrelevant table %s", where_it->exprCol.tableName.data()));
-				Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+			if(where_it->isExprCol && where_it->exprCol.tableName.length() && where_it->exprCol.tableName != tbname){
+				Global::IrrelevantTable(whereClause.pos, where_it->exprCol.tableName.data());
 				return false;
 			}
 			uchar colIDLeft = table->IDofCol(where_it->column.colName.data());
 			if(colIDLeft == COL_ID_NONE){
-				Global::newError(T6.pos, Global::format("Unknown field %s", where_it->column.colName.data()));
-				Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+				Global::NoSuchField(whereClause.pos, where_it->column.colName.data());
 				return false;
 			}
 			uchar colIDRight = COL_ID_NONE;
 			if(where_it->isExprCol){
 				colIDRight = table->IDofCol(where_it->exprCol.colName.data());
 				if(colIDRight == COL_ID_NONE){
-					Global::newError(T6.pos, Global::format("Unknown field %s", where_it->exprCol.colName.data()));
-					Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+					Global::NoSuchField(whereClause.pos, where_it->exprCol.colName.data());
 					return false;
 				}
 			}
 			SelectHelper helper;
 			helper.leftColID = colIDLeft;
 			helper.rightColID = colIDRight;
-			helper.cmp = where_it->cmp;
 			if(!where_it->isExprCol){ // col = value, convert value into binary
-				if(!Type::ConvertValue(helper.val, table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrLenth[colIDLeft], 
+				if(!ParsingHelper::ConvertValue(helper.val, table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrLenth[colIDLeft], 
 					where_it->exprVal, getBitFromLeft(table->GetHeader()->nullMask, colIDLeft))){
-						Global::newError(T6.pos, Global::format("Incompatible type for field %.*s", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft]));
-						Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+						Global::IncompatibleTypes(whereClause.pos, table->GetHeader()->attrName[colIDLeft]);
 						return false;
 					}
 			}
 			else{ // col = col, check type compatility
 				if(!DataType::Comparable(table->GetHeader()->attrType[colIDLeft], table->GetHeader()->attrType[colIDRight])){
-					Global::newError(T6.pos, Global::format("Field %.*s and %.*s are incomparable", MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDLeft], 
-						MAX_ATTRI_NAME_LEN, table->GetHeader()->attrName[colIDRight]));
-					Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+					Global::IncomparableFields(whereClause.pos, table->GetHeader()->attrName[colIDLeft], table->GetHeader()->attrName[colIDRight]);
 					return false;
 				}
 			}
+			helper.cmp = where_it->cmp;
 			helper.hasRightCol = where_it->isExprCol;
-			helpers.push_back(helper);
+			// FIXING
+			if(helper.hasRightCol)
+				helpers.push_back(helper);
+			else{
+				whereHelpersCol[helper.leftColID].push_back(helper);
+				if(whereHelpersCol[helper.leftColID].size() > cmpUnitsNeeded)
+					cmpUnitsNeeded = whereHelpersCol[helper.leftColID].size();
+			}
 		}
-		// build scanner
+	}
+
+	// 参数含义与checkWhereClause中的一样
+	static Scanner* buildScanner(Table* table, std::vector<SelectHelper>& helpers, std::vector<SelectHelper> *whereHelpersCol, int cmpUnitsNeeded){
 		Scanner* scanner = table->GetScanner(nullptr);
 		uchar cmps[table->ColNum()] = {0}; // Comparator::Any is 0
-		std::string constantValue;
-		for(auto helper_it = helpers.begin(); helper_it != helpers.end(); helper_it++){
-			if(!helper_it->hasRightCol){ // 'col = value' style
-				uchar leftColType = table->GetHeader()->attrType[helper_it->leftColID];
-				ushort leftColLength = table->GetHeader()->attrLenth[helper_it->leftColID];
-				if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
-					constantValue.append(helper_it->val.str);
-					constantValue.append(leftColLength - helper_it->val.str.length(), 0); // padding
-				}
-				else
-					constantValue.append((char*)helper_it->val.bytes, DataType::lengthOf(leftColType, leftColLength));
-				cmps[helper_it->leftColID] = helper_it->cmp;
-			}
-			else{ // 'col = col' style
-				scanner->AddSelfCmp(helper_it->leftColID, helper_it->rightColID, helper_it->cmp);
-			}
-		}
-		scanner->SetDemand((uchar*)constantValue.data(), table->ColNum(), cmps);
-		// update
-		Record tmpRec;
-		while(scanner->NextRecord(&tmpRec)){
-			for(auto set_it = setHelpers.begin(); set_it != setHelpers.end(); set_it++){
-				uchar setColType = table->GetHeader()->attrType[set_it->colID];
-				if(set_it->value.type == DataType::NONE){ // use val type
-					setBitFromLeft(*(uint*)tmpRec.GetData(), set_it->colID);
-				}
-				else{
-					if(setColType == DataType::CHAR){ // use field type
-						memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.str.data(), set_it->value.str.length());
-						memset(tmpRec.GetData() + table->ColOffset(set_it->colID) + set_it->value.str.length(), 0, 
-							table->GetHeader()->attrLenth[set_it->colID] - set_it->value.str.length());
-					}
-					else if(setColType == DataType::VARCHAR){ // use field type
-						if(table->GetHeader()->attrLenth[set_it->colID] > 255){
-							RID tmpRID;
-							Global::dbms->CurrentDatabase()->InsertLongVarchar(set_it->value.str.data(), set_it->value.str.length(), &tmpRID);
-							*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID)) = tmpRID.GetPageNum();
-							*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID + 4)) = tmpRID.GetSlotNum();
+		// FIXME: 现在的constantValue没有加上null word, 没有考虑is null/is not null, 没有考虑字段顺序,没有考虑一个字段上的多个约束
+		uchar constantValue[DataType::calcConstantLength(table->GetHeader()->attrType, table->GetHeader()->attrLenth, table->ColNum())];
+		for(int i = 0; i < cmpUnitsNeeded; i++){ // i is the index for condition
+			memset(cmps, 0, sizeof(cmps)); // Comparator::Any
+			memset(constantValue, 0, sizeof(constantValue));
+			int constantPos = 4;
+			for(int j = 0; j < table->ColNum(); j++){ // j is the index for field
+				if(whereHelpersCol[j].size() > i){
+					SelectHelper &tmp = whereHelpersCol[j][i];
+					if(!tmp.hasRightCol){ // col = value
+						uchar leftColType = table->GetHeader()->attrType[tmp.leftColID];
+						uchar leftColLength = table->GetHeader()->attrLenth[tmp.leftColID];
+						int constantLength = DataType::constantLengthOf(leftColType, leftColLength); // keep char and varchar, convert numeric
+						if(tmp.val.type == DataType::NONE){
+							setBitFromLeft(*(uint*)constantValue, j);
 						}
+						else if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
+							memcpy(constantValue + constantPos, tmp.val.str.data(), tmp.val.str.length());
+							memset(constantValue + constantPos + tmp.val.str.length(), 0, leftColLength - tmp.val.str.length());
+						}
+						else{
+							memcpy(constantValue + constantPos, tmp.val.bytes, constantLength);
+						}
+						constantPos += constantLength;
+						cmps[j] = tmp.cmp;
 					}
-					else{
-						memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.bytes, 
-							DataType::lengthOf(table->GetHeader()->attrType[set_it->colID], table->GetHeader()->attrType[set_it->colID]));
-					}
+					else
+						assert(false);
 				}
-				table->UpdateRecord(*tmpRec.GetRid(), tmpRec.GetData(), 0, 0, table->GetHeader()->recordLenth);
-				tmpRec.FreeMemory();
 			}
+			scanner->AddDemand(constantValue, table->ColNum(), cmps);
 		}
-		delete scanner;
-		Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
+		for(auto where_it = helpers.begin(); where_it != helpers.end(); where_it++)
+			scanner->AddSelfCmp(where_it->leftColID, where_it->rightColID, where_it->cmp);
+		return scanner;			
+	}
+};
+
+struct Debugger{
+	static bool debug(std::vector<Type> &typeVec){
 		return true;
 	}
 };

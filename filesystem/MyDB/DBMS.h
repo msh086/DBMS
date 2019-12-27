@@ -1,5 +1,5 @@
 #ifndef DBMS_H
-#define DEBMS_H
+#define DBMS_H
 #include "../utils/pagedef.h"
 #include "Database.h"
 #include "Scanner.h"

@@ -1,5 +1,5 @@
-#ifndef RECORD_H_INCLUDED
-#define RECORD_H_INCLUDED
+#ifndef RECORD_H
+#define RECORD_H
 #include "RID.h"
 #include "../utils/pagedef.h"
 class FileHandler;

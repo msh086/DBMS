@@ -1,5 +1,5 @@
-#ifndef RID_H_INCLUDED
-#define RID_H_INCLUDED
+#ifndef RID_H
+#define RID_H
 class Table;
 class BplusTree;
 class Scanner;

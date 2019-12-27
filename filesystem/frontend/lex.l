@@ -69,65 +69,64 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 
 /*下面%%后开始第2段：规则段*/
 %%
-"databases"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DATABASES;}
-"database"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DATABASE;}
-"tables"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return TABLES;}
-"table"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return TABLE;}
-"show"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return SHOW;}
-"create"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return CREATE;}
-"drop"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DROP;}
-"use"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return USE;}
-"primary"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return PRIMARY;}
-"key"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return KEY;}
-"not"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return NOT;}
-"null"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return KW_NULL;}
-"insert"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return INSERT;}
-"into"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return INTO;}
-"values"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return VALUES;}
-"delete"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DELETE;}
-"from"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return FROM;}
-"where"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return WHERE;}
-"update"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return UPDATE;}
-"set"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return SET;}
-"select"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return SELECT;}
-"is"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return IS;}
-"int"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return KW_INT;}
-"varchar"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return VARCHAR;}
-"char"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return CHAR;}
-"default"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DEFAULT;}
-"constraint"	{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return CONSTRAINT;}
-"change"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return CHANGE;}
-"alter"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return ALTER;}
-"add"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return ADD;}
-"rename"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return RENAME;}
-"desc"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DESC;}
-"index"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return INDEX;}
-"and"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return AND;}
-"date"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DATE;}
-"float"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return FLOAT;}
-"foreign"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return FOREIGN;}
-"references"	{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return REFERENCES;}
-"numeric"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;}
-"decimal"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;} // trick: decimal is the same as numeric
-"on"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return ON;}
-"to"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return TO;}
+"databases"		{yylval.pos = Global::pos; Global::pos += yyleng; return DATABASES;}
+"database"		{yylval.pos = Global::pos; Global::pos += yyleng; return DATABASE;}
+"tables"		{yylval.pos = Global::pos; Global::pos += yyleng; return TABLES;}
+"table"			{yylval.pos = Global::pos; Global::pos += yyleng; return TABLE;}
+"show"			{yylval.pos = Global::pos; Global::pos += yyleng; return SHOW;}
+"create"		{yylval.pos = Global::pos; Global::pos += yyleng; return CREATE;}
+"drop"			{yylval.pos = Global::pos; Global::pos += yyleng; return DROP;}
+"use"			{yylval.pos = Global::pos; Global::pos += yyleng; return USE;}
+"primary"		{yylval.pos = Global::pos; Global::pos += yyleng; return PRIMARY;}
+"key"			{yylval.pos = Global::pos; Global::pos += yyleng; return KEY;}
+"not"			{yylval.pos = Global::pos; Global::pos += yyleng; return NOT;}
+"null"			{yylval.pos = Global::pos; Global::pos += yyleng; return KW_NULL;}
+"insert"		{yylval.pos = Global::pos; Global::pos += yyleng; return INSERT;}
+"into"			{yylval.pos = Global::pos; Global::pos += yyleng; return INTO;}
+"values"		{yylval.pos = Global::pos; Global::pos += yyleng; return VALUES;}
+"delete"		{yylval.pos = Global::pos; Global::pos += yyleng; return DELETE;}
+"from"			{yylval.pos = Global::pos; Global::pos += yyleng; return FROM;}
+"where"			{yylval.pos = Global::pos; Global::pos += yyleng; return WHERE;}
+"update"		{yylval.pos = Global::pos; Global::pos += yyleng; return UPDATE;}
+"set"			{yylval.pos = Global::pos; Global::pos += yyleng; return SET;}
+"select"		{yylval.pos = Global::pos; Global::pos += yyleng; return SELECT;}
+"is"			{yylval.pos = Global::pos; Global::pos += yyleng; return IS;}
+"int"			{yylval.pos = Global::pos; Global::pos += yyleng; return KW_INT;}
+"varchar"		{yylval.pos = Global::pos; Global::pos += yyleng; return VARCHAR;}
+"char"			{yylval.pos = Global::pos; Global::pos += yyleng; return CHAR;}
+"default"		{yylval.pos = Global::pos; Global::pos += yyleng; return DEFAULT;}
+"constraint"	{yylval.pos = Global::pos; Global::pos += yyleng; return CONSTRAINT;}
+"change"		{yylval.pos = Global::pos; Global::pos += yyleng; return CHANGE;}
+"alter"			{yylval.pos = Global::pos; Global::pos += yyleng; return ALTER;}
+"add"			{yylval.pos = Global::pos; Global::pos += yyleng; return ADD;}
+"rename"		{yylval.pos = Global::pos; Global::pos += yyleng; return RENAME;}
+"desc"			{yylval.pos = Global::pos; Global::pos += yyleng; return DESC;}
+"index"			{yylval.pos = Global::pos; Global::pos += yyleng; return INDEX;}
+"and"			{yylval.pos = Global::pos; Global::pos += yyleng; return AND;}
+"date"			{yylval.pos = Global::pos; Global::pos += yyleng; return DATE;}
+"float"			{yylval.pos = Global::pos; Global::pos += yyleng; return FLOAT;}
+"foreign"		{yylval.pos = Global::pos; Global::pos += yyleng; return FOREIGN;}
+"references"	{yylval.pos = Global::pos; Global::pos += yyleng; return REFERENCES;}
+"numeric"		{yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;}
+"decimal"		{yylval.pos = Global::pos; Global::pos += yyleng; return NUMERIC;} // trick: decimal is the same as numeric
+"on"			{yylval.pos = Global::pos; Global::pos += yyleng; return ON;}
+"to"			{yylval.pos = Global::pos; Global::pos += yyleng; return TO;}
 
-"exit"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return EXIT;}
-"copy"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return COPY;}
-"with"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return WITH;}
-"delimiter"		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return DELIMITER;}
+"exit"			{yylval.pos = Global::pos; Global::pos += yyleng; return EXIT;}
+"copy"			{yylval.pos = Global::pos; Global::pos += yyleng; return COPY;}
+"with"			{yylval.pos = Global::pos; Global::pos += yyleng; return WITH;}
+"delimiter"		{yylval.pos = Global::pos; Global::pos += yyleng; return DELIMITER;}
 
-">="			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return GE;}
-"<="			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return LE;}
-"<>"			{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return NE;}
-{SIMPLE_OP}		{yylval.Reset(); yylval.pos = Global::pos; Global::pos += yyleng; return yytext[0];}
+">="			{yylval.pos = Global::pos; Global::pos += yyleng; return GE;}
+"<="			{yylval.pos = Global::pos; Global::pos += yyleng; return LE;}
+"<>"			{yylval.pos = Global::pos; Global::pos += yyleng; return NE;}
+{SIMPLE_OP}		{yylval.pos = Global::pos; Global::pos += yyleng; return yytext[0];}
 
 {newline}		{
 					// yyterminate();
 				}
 
 {date}			{
-					yylval.Reset();
 					yylval.val.str.assign(yytext, yyleng);
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
@@ -135,7 +134,6 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 				}
 
 {integer}		{							//匹配整数串
-					yylval.Reset();
 					yylval.val.str.assign(yytext, yyleng);
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
@@ -143,7 +141,6 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 				}
 
 {float}			{
-					yylval.Reset();
 					yylval.val.str.assign(yytext, yyleng);
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;
@@ -154,8 +151,7 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 					Global::pos += yyleng;
 				}
 				
-\"				{					
-					yylval.Reset();
+\"				{			
 					yylval.pos = Global::pos; 		
 					Global::pos++;
 					BEGIN STRING;			//用BEGIN宏切换到注释状态，去过滤这段注释，下一次lex将只匹配前面带有<COMMENT>的正则式
@@ -163,7 +159,6 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 
 
 {identifier}	{							//匹配标识符串，此时串值由yytext保存
-					yylval.Reset();
 					yylval.val.str.assign(yytext, yyleng);	//通过yylval向yacc传递识别出的记号的值，由于yylval已定义为struct Type，这里就可以把yytext赋给其m_sId成员，到了yacc里就可以用$n的方式来引用了
 					yylval.pos = Global::pos; 
 					Global::pos += yyleng;

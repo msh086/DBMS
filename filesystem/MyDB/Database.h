@@ -428,6 +428,20 @@ class Database{
         }
 
         /**
+         * 写回所有打开的表
+        */
+        void CloseTables(){
+            for(auto it = activeTables.begin(); it != activeTables.end(); it++){
+                (*it)->WriteBack();
+                int closeRet = fm->closeFile((*it)->fid);
+                delete *it;
+                if(closeRet != 0)
+                    printf("In Database::Close, error when closing table\n");
+            }
+            activeTables.clear();
+        }
+
+        /**
          * 关闭这个数据库
         */
         void Close(){

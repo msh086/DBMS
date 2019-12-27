@@ -9,6 +9,13 @@
 #include <cassert>
 using namespace std;
 
+/**
+ * null值处理:
+ * 1. 任何针对null的比较都只有eq和ne才有意义
+ * 2. compareArrMultiOp时,如果允许一方为constant,才允许null值比较
+ * 3. b+树维护时,允许null值的比较
+*/
+
 class DataType{
     private:
         // write the lower 'avail' bits in 'data' into dst[byte], skipping the highest 'offset' bits
@@ -240,15 +247,20 @@ class DataType{
                     break;
             }
         }
-
+        // left > right <==> left >= right && left != right
+        // 任何一方为null,结果为false
         static bool greaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
             return noLessThan(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant) && !eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
         }
 
+        // left < right <==> right > left <==> right >= left && right != left
+        // 任何一方为null,结果为false
         static bool lessThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
             return greaterThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
         }
 
+        // left >= right <==> right <= left
+        // 存在null时,只有两方都为null,结果才为true,否则为false
         static bool noGreaterThan(const uchar* left, const uchar* right, uchar type, ushort length, bool nullLeft, bool nullRight, bool leftConstant = false, bool rightConstant = false){
             return noLessThan(right, left, type, length, nullRight, nullLeft, rightConstant, leftConstant);
         }
@@ -467,6 +479,7 @@ class DataType{
 
         // convert binary data in bin to p decimal digits in dst
         // the bin doesn't include the 1 byte header, so this has nothing to do with s
+        // NOTE: value of value[i] is decimal digit, not ascii character!!!
         static void binToDigits(const uchar* bin, uchar* dst, int p){
             int p_div_3 = p / 3, p_mod_3 = p % 3;
             memset(dst, 0, p);
@@ -639,8 +652,21 @@ class DataType{
         static int calcTotalLength(const uchar* types, const ushort* lengths, int colNum){
             int ans = 4; // null word
             for(int i = 0; i < colNum; i++){
-                    ans += lengthOf(types[i], lengths[i]);
+                ans += lengthOf(types[i], lengths[i]);
             }
+            return ans;
+        }
+
+        static int constantLengthOf(uchar type, ushort length){
+            if(type == DataType::CHAR || type == DataType::VARCHAR)
+                return length;
+            return lengthOf(type, length);
+        }
+
+        static int calcConstantLength(const uchar* types, const ushort* lengths, int colNum){
+            int ans = 4;
+            for(int i = 0; i < colNum; i++)
+                ans += constantLengthOf(types[i], lengths[i]);
             return ans;
         }
 

@@ -32,7 +32,7 @@ int main(){
             ok = false;
             Global::errorSign = false;
         }
-        if(ok && !Global::exitSign){
+        if(ok && !Global::exitSign && Global::errors.empty()){
             Global::action(Global::types);
             Global::dbms->CurrentDatabase()->CloseTables();
         }
@@ -49,6 +49,8 @@ int main(){
             return 0;
         }
         Global::pos = 0;
+        Global::types.clear();
+        Global::action = nullptr;
         fseek(tmp, 0, SEEK_END);
         // printf("old pos: %ld", prevPos);
         prevPos = ftell(tmp);
