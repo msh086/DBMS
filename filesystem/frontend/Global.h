@@ -109,8 +109,15 @@ class Global{
 		static void NoDefaultValue(int pos, const uchar* name){
 			newError(pos, format("No default value for field %.*s", MAX_ATTRI_NAME_LEN, name));
 		}
-		
-		// indexes
+		static void MasterFieldNotPrimary(int pos){
+			newError(pos, "No corresponding primary key in master table");
+		}
+		static void DuplicateFieldInConstraint(int pos){
+			newError(pos, "A field cannot appear more than once in a constraint");
+		}
+		static void ForeignKeyNotFound(int pos, const uchar* name){
+			newError(pos, format("Key combination not found in foreign key master table %s", name));
+		}
 		static void PrimaryKeyConflict(int pos){
 			newError(pos, "Primary key conflict");
 		}

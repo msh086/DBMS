@@ -57,6 +57,9 @@ struct SelectHelper{
 
 struct Constraint{
 	std::vector<std::string> IDList;
+	// for fk constraints
+	std::string masterName;
+	std::vector<std::string> masterIDList;
 	bool isFK = false;
 	void Reset(){
 		IDList.clear();

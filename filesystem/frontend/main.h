@@ -155,6 +155,7 @@ struct ParsingHelper{
 					cmpUnitsNeeded = whereHelpersCol[helper.leftColID].size();
 			}
 		}
+		return true;
 	}
 
 	// 参数含义与checkWhereClause中的一样
@@ -163,44 +164,277 @@ struct ParsingHelper{
 		uchar cmps[table->ColNum()] = {0}; // Comparator::Any is 0
 		// FIXME: 现在的constantValue没有加上null word, 没有考虑is null/is not null, 没有考虑字段顺序,没有考虑一个字段上的多个约束
 		uchar constantValue[DataType::calcConstantLength(table->GetHeader()->attrType, table->GetHeader()->attrLenth, table->ColNum())];
+		const uchar* vals[table->ColNum()] = {0};
+		bool selection[table->ColNum()] = {0};
 		for(int i = 0; i < cmpUnitsNeeded; i++){ // i is the index for condition
 			memset(cmps, 0, sizeof(cmps)); // Comparator::Any
 			memset(constantValue, 0, sizeof(constantValue));
-			int constantPos = 4;
-			for(int j = 0; j < table->ColNum(); j++){ // j is the index for field
+			memset(vals, 0, sizeof(vals));
+			memset(selection, 0, sizeof(selection));
+			for(int j = 0; j < table->ColNum(); j++){
 				if(whereHelpersCol[j].size() > i){
+					selection[j] = true;
 					SelectHelper &tmp = whereHelpersCol[j][i];
-					if(!tmp.hasRightCol){ // col = value
-						uchar leftColType = table->GetHeader()->attrType[tmp.leftColID];
-						uchar leftColLength = table->GetHeader()->attrLenth[tmp.leftColID];
-						int constantLength = DataType::constantLengthOf(leftColType, leftColLength); // keep char and varchar, convert numeric
-						if(tmp.val.type == DataType::NONE){
-							setBitFromLeft(*(uint*)constantValue, j);
-						}
-						else if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
-							memcpy(constantValue + constantPos, tmp.val.str.data(), tmp.val.str.length());
-							memset(constantValue + constantPos + tmp.val.str.length(), 0, leftColLength - tmp.val.str.length());
-						}
-						else{
-							memcpy(constantValue + constantPos, tmp.val.bytes, constantLength);
-						}
-						constantPos += constantLength;
-						cmps[j] = tmp.cmp;
-					}
+					cmps[j] = tmp.cmp;
+					if(tmp.val.type == DataType::NONE)
+						setBitFromLeft(*(uint*)constantValue, j);
+					else if(table->GetHeader()->attrType[j] == DataType::CHAR || table->GetHeader()->attrType[j] == DataType::VARCHAR)
+						vals[j] = (const uchar*)tmp.val.str.data();
 					else
-						assert(false);
+						vals[j] = tmp.val.bytes;
 				}
 			}
+			ParsingHelper::extractFields(table->GetHeader(), table->ColNum(), selection, vals, constantValue, true, false);
+
+			// int constantPos = 4;
+			// for(int j = 0; j < table->ColNum(); j++){ // j is the index for field
+			// 	uchar leftColType = table->GetHeader()->attrType[j];
+			// 	uchar leftColLength = table->GetHeader()->attrLenth[j];
+			// 	int constantLength = DataType::constantLengthOf(leftColType, leftColLength);
+			// 	if(whereHelpersCol[j].size() > i){
+			// 		SelectHelper &tmp = whereHelpersCol[j][i];
+			// 		if(!tmp.hasRightCol){ // col = value
+			// 			if(tmp.val.type == DataType::NONE){
+			// 				setBitFromLeft(*(uint*)constantValue, j);
+			// 			}
+			// 			else if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
+			// 				memcpy(constantValue + constantPos, tmp.val.str.data(), tmp.val.str.length());
+			// 				memset(constantValue + constantPos + tmp.val.str.length(), 0, leftColLength - tmp.val.str.length());
+			// 			}
+			// 			else{
+			// 				memcpy(constantValue + constantPos, tmp.val.bytes, constantLength);
+			// 			}
+			// 			cmps[j] = tmp.cmp;
+			// 		}
+			// 		else
+			// 			assert(false);
+			// 	}
+			// 	constantPos += constantLength;
+			// }
 			scanner->AddDemand(constantValue, table->ColNum(), cmps);
 		}
 		for(auto where_it = helpers.begin(); where_it != helpers.end(); where_it++)
 			scanner->AddSelfCmp(where_it->leftColID, where_it->rightColID, where_it->cmp);
 		return scanner;			
 	}
+
+	/**
+	 * 抽取header中部分字段,构造记录,用于index的比较和where字句的scanner构造
+	 * colNum表示原始记录的字段数量
+	 * select表示哪些字段被抽取,是colNum大小的数组
+	 * valList是被抽取字段的值,是colNum大小的数组
+	 * dst是构造出的记录的存储地址
+	 * isConstant = true表示从常量记录中抽取;反之则表示从物理记录中抽取
+	 * compact = true表示压缩字段,即不会为未被选中的字段预留空间;反之则会预留空间
+	 * NOTE: 请在调用该函数前处理好null word并写入到dst前4个字节内
+	*/
+	static void extractFields(const BaseHeader* header, int colNum, bool* selection, const uchar** valList, uchar* dst, bool isConstant, bool compact){
+		int bufPos = 4;
+		for(int i = 0; i < colNum; i++){
+			uchar colType = header->attrType[i];
+			uchar colLength = header->attrLenth[i];
+			int fieldLength = isConstant ? DataType::constantLengthOf(colType, colLength) : DataType::lengthOf(colType, colLength);
+			if(selection[i]){
+				if(!getBitFromLeft(*(uint*)dst, i)) // 非null时才赋值常量值
+					memcpy(dst + bufPos, valList[i], fieldLength);
+				bufPos += fieldLength;
+			}
+			else if(!compact) // 在compact模式下,未被选中的字段不占用空间
+				bufPos += fieldLength;
+		}
+	}
 };
 
 struct Debugger{
 	static bool debug(std::vector<Type> &typeVec){
+		Type &T1 = typeVec[0], &T3 = typeVec[1], &T5 = typeVec[2];
+		if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+			Global::TableNameTooLong(T3.pos);
+			return false;
+		}
+		if(T5.fieldList.size() > MAX_COL_NUM){
+			Global::TooManyFields(T5.pos);
+			return false;
+		}
+		if(Global::dbms->CurrentDatabase() == nullptr){
+			Global::NoActiveDb(T1.pos);
+			return false;
+		}
+		if(Global::dbms->CurrentDatabase()->TableExists(T3.val.str.data())){
+			Global::TableNameConflict(T3.pos);
+			return false;
+		}
+		std::set<std::string> allNames;
+		Header header;
+		header.nullMask = 0; // the default value is 0xffffffff
+		int pos = 0;
+		for(auto it = T5.fieldList.begin(); it != T5.fieldList.end(); it++){
+			if(it->name.length() > MAX_ATTRI_NAME_LEN){
+				Global::FieldNameTooLong(T5.pos);
+				return false;
+			}
+			if(!allNames.insert(it->name).second){
+				Global::FieldNameConflict(T5.pos, it->name.data());
+				return false;
+			}
+			// update header
+			header.recordLenth += DataType::lengthOf(it->type, it->length); // 内存长度而非原始长度
+			if(it->nullable)
+				header.nullMask |= 1 << (31 - pos);
+			if(it->hasDefault)
+				header.defaultKeyMask |= 1 << (31 - pos);
+			header.attrLenth[pos] = it->length; // 使用原始长度
+			header.attrType[pos] = it->type;
+			memcpy(header.attrName[pos], it->name.data(), it->name.length());
+			pos++;
+		}
+		header.recordLenth += 4;
+		header.slotNum = PAGE_SIZE / header.recordLenth;
+		// handle constraints
+		bool hasPrimary = false;
+		// lambda function, get the index of a given name
+		auto getNameIndex = [=](const std::string& target)->int{
+			int ans = 0;
+			for(auto it = T5.fieldList.begin(); it != T5.fieldList.end(); it++){
+				if(it->name == target)
+					return ans;
+				ans++;
+			}
+			return -1;
+		};
+		// number of foreign key constraints
+		int fkIndex = 0;
+		// indexes of primary fields, used in creating primary index
+		std::vector<uchar> primaryCols;
+		for(auto it = T5.constraintList.begin(); it != T5.constraintList.end(); it++){
+			// multiple primary keys
+			if(hasPrimary && !it->isFK){
+				Global::MultiplePrimaryKey(T5.pos);
+				return false;
+			}
+			std::set<std::string> IDListFields; // 用来检查主键和slave外键中是否有重复字段
+			// check names
+			if(!it->isFK) { // primary key constraint, all IDs need to be declared
+				hasPrimary = true;
+				for(auto id_it = it->IDList.begin(); id_it != it->IDList.end(); id_it++){
+					if(!allNames.count(*id_it)){
+						Global::NoSuchField(T5.pos, id_it->data());
+						return false;
+					}
+					if(!IDListFields.insert(*id_it).second){
+						Global::DuplicateFieldInConstraint(T5.pos);
+						return false;
+					}
+					// update header
+					uchar colIndex = getNameIndex(*id_it);
+					clearBitFromLeft(header.nullMask, colIndex); // 字段可以不声明为not null,但仍在建表时声明为主键,这时自动加上not null约束
+					header.primaryKeyMask |= 1 << (31 - colIndex);
+					header.primaryKeyID[primaryCols.size()] = colIndex;
+					primaryCols.push_back(colIndex);
+				}
+			}
+			else{ // foreign key constraint
+				// check for too many slave times
+				if(fkIndex == MAX_REF_SLAVE_TIME){
+					Global::TooManySlaveTime(T5.pos);
+					return false;
+				}
+				// check slaveCol names
+				int slavePos = 0;
+				for(auto slave_it = it->IDList.begin(); slave_it != it->IDList.end(); slave_it++){
+					if(!allNames.count(*slave_it)){
+						Global::NoSuchField(T5.pos, slave_it->data());
+						return false;
+					}
+					if(!IDListFields.insert(*slave_it).second){
+						Global::DuplicateFieldInConstraint(T5.pos);
+						return false;
+					}
+					header.slaveKeyID[fkIndex][slavePos++] = getNameIndex(*slave_it);
+				}
+				// check masterTable name
+				Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->masterName.data());
+				if(!master){ // no such table
+					Global::NoSuchTable(T5.pos, it->masterName.data());
+					return false;
+				}
+				// check master cols
+				int primaryPos = 0;
+				for(auto master_it = it->masterIDList.begin(); master_it != it->masterIDList.end(); master_it++){
+					int masterColIndex = master->IDofCol(master_it->data());
+					if(masterColIndex == COL_ID_NONE){
+						Global::NoSuchField(T5.pos, master_it->data());
+						return false;
+					}
+					if(master->GetHeader()->primaryKeyID[primaryPos++] != masterColIndex){
+						Global::MasterFieldNotPrimary(T5.pos);
+						return false;
+					}
+				}
+				if(primaryPos < MAX_COL_NUM && master->GetHeader()->primaryKeyID[primaryPos] != COL_ID_NONE){
+					Global::MasterFieldNotPrimary(T5.pos);
+					return false;
+				}
+				// update header, this fk constraint is anonymous!!!
+				header.fkMaster[fkIndex] = master->GetTableID();
+				fkIndex++;
+				Global::dbms->CurrentDatabase()->CloseTable(it->masterName.data());
+			}
+		}
+		// build default record
+		uchar dftRec[header.recordLenth] = {0};
+		int dftBufPos = 4; // skip the null word
+		int dftIndex = 0;
+		for(auto it = T5.fieldList.begin(); it != T5.fieldList.end(); it++, dftIndex++){
+			int fieldLength = DataType::lengthOf(it->type, it->length); // 使用内存长度而非原始长度
+			if(it->hasDefault){
+				if(it->defaultValue.type == DataType::NONE){ // special case, default value is null
+					if(getBitFromLeft(header.nullMask, dftIndex)){
+						Global::IncompatibleTypes(T5.pos, header.attrName[dftIndex]);
+						return false;
+					}
+					setBitFromLeft(*(uint*)dftRec, dftIndex); // set null word
+				}
+				if(it->type == DataType::CHAR){
+					memcpy(dftRec + dftBufPos, it->defaultValue.str.data(), it->defaultValue.str.length());
+				}
+				else if(it->type == DataType::VARCHAR){
+					if(it->length <= 255)
+						memcpy(dftRec + dftBufPos, it->defaultValue.str.data(), it->defaultValue.str.length());
+					else{ // long varchar
+						RID varcharRID;
+						Global::dbms->CurrentDatabase()->InsertLongVarchar(it->defaultValue.str.data(), it->defaultValue.str.length(), &varcharRID);
+						*(uint*)(dftRec + dftBufPos) = varcharRID.GetPageNum();
+						*(uint*)(dftRec + dftBufPos + 4) = varcharRID.GetSlotNum();
+					}
+				}
+				else{
+					memcpy(dftRec + dftBufPos, it->defaultValue.bytes, fieldLength);
+				}
+			}
+			dftBufPos += fieldLength;
+		}
+		uchar tableIdx = Global::dbms->CurrentDatabase()->CreateTable(T3.val.str.data(), &header, dftRec);
+		if(tableIdx == TB_ID_NONE)
+			printf("Unknown error in creating table\n");
+		else{
+			// update fk masters' info
+			for(auto it = T5.constraintList.begin(); it != T5.constraintList.end(); it++){
+				if(it->isFK){
+					Table* master = Global::dbms->CurrentDatabase()->OpenTable(it->IDList[1].data());
+					master->AddFKSlave(tableIdx);
+					Global::dbms->CurrentDatabase()->CloseTable(it->IDList[1].data());
+					// too many fkslaves?
+					// TODO: record fkslaves as (table id, times), which requires MAX_TB_NUM * 2 bytes and make fkSlaves overflow almost impossible
+				}
+			}
+			if(hasPrimary){ // create index on primary keys
+				Table* newTable = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+				int idxRet = newTable->CreateIndexOn(primaryCols, PRIMARY_RESERVED_IDX_NAME);
+				assert(idxRet == 0);
+				// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+			}
+		}
 		return true;
 	}
 };
