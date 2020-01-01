@@ -614,7 +614,7 @@ class DataType{
          * 比较两组值，left cmp right == true iff left[i] cmp right[i] == true, i = 0, 1, ..., colNum - 1
          * NOTE: 在B+树中使用
         */
-        static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar cmp){
+        static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar cmp, bool leftConstant = false, bool rightConstant = false){
             // 跳过null word
             uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
             left += 4;
@@ -623,8 +623,8 @@ class DataType{
                 if(!compare(left, right, types[i], lengths[i], cmp, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
                     return false;
                 int length = lengthOf(types[i], lengths[i]);
-                left += length;
-                right += length;
+                left += (leftConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                right += (rightConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
             }
             return true;
         }

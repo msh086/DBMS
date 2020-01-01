@@ -16,7 +16,7 @@ class Header : public BaseHeader{
         // uint recordNum = 0;
         // uint exploitedNum = 0;// If a table's slots are: 1 0 0 1 0 1 0 0 0 0..., then the exploitedNum is 6 while recordNum is 3. 0 for empty
         // uint nullMask = 0;
-        uint primaryKeyMask = 0; // A cluster primary key can include multiple columns
+        uint primaryKeyMask = 0; // ! unused. Use primaryKeyID instead, the corresponsing primary constraint name is the same as primary index name
         uint foreignKeyMask = 0; // ! unused. Use fkMaster, masterKeyID, slaveKeyID, constraintName instead
         uint defaultKeyMask = 0; // The template record for `default` is always stored as (1, 0) and is invisible & inchangable by query
         // For attrLenth, if we store varchar locally, each element will take a uint
@@ -29,16 +29,18 @@ class Header : public BaseHeader{
         // While in {tablename}, only the RID of the head record in VARCHAR_TB is stored, which requires 8B
         // a value > 255 in attrLenth indicates a long varchar stored in special varchar table
         // We can reserve VARCHAR_DB as a privileged table name and throw an exception when user tries to create, access or delete it.
-        // ushort attrLenth[MAX_COL_NUM] = {0}; // ? updated for ushort
+        // ushort attrLenth[MAX_COL_NUM] = {0};
         // uchar attrType[MAX_COL_NUM] = {0}; // number of attributes in the table = positive values in this array
         uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
+        // 主键的列序号, 主键名称直接使用索引名称
+        uchar primaryKeyID[MAX_COL_NUM] = {0};
         /* 外键约束 */
         // 引用别的表的ID
         uchar fkMaster[MAX_REF_SLAVE_TIME] = {0}; // 用表的id代替表名来节省空间
-        // 别的表中被引用列的ID
-        uint masterKeyID[MAX_REF_SLAVE_TIME] = {0}; // 一个uint是一个32bit位图
+        //// 别的表中被引用列的ID
+        // uint masterKeyID[MAX_REF_SLAVE_TIME] = {0}; // 一个uint是一个32bit位图 // ! 必然是主键,不需要记录
         // 本表中涉及到的列的ID
-        uint slaveKeyID[MAX_REF_SLAVE_TIME] = {0};
+        uchar slaveKeyID[MAX_REF_SLAVE_TIME][MAX_COL_NUM] = {0}; // ! 顺序是重要的 e.g. foreign key(id1, id2) references master(id1, id2) vs foreign key(id2, id1) references master(id1, id2)
         // 外键约束的名称
         uchar constraintName[MAX_REF_SLAVE_TIME][MAX_CONSTRAINT_NAME_LEN] = {{0}};
         // 被别的表的外键约束引用
@@ -56,6 +58,8 @@ class Header : public BaseHeader{
             memset(fkMaster, TB_ID_NONE, MAX_REF_SLAVE_TIME);
             memset(fkSlave, TB_ID_NONE, MAX_FK_MASTER_TIME);
             memset(indexID, COL_ID_NONE, MAX_INDEX_NUM * MAX_COL_NUM);
+            memset(primaryKeyID, COL_ID_NONE, MAX_COL_NUM);
+            memset(slaveKeyID, COL_ID_NONE, MAX_REF_SLAVE_TIME * MAX_COL_NUM);
         }
 
         /* header的长度 */
@@ -63,8 +67,9 @@ class Header : public BaseHeader{
             sizeof(ushort) * MAX_COL_NUM + // attrLenth
             MAX_COL_NUM + // attrType
             MAX_COL_NUM * MAX_ATTRI_NAME_LEN + // attrName
+            MAX_COL_NUM + // primaryKeyID
             MAX_REF_SLAVE_TIME + // fkMaster
-            MAX_REF_SLAVE_TIME * sizeof(uint) * 2 + // masterKeyID, slaveKeyID
+            MAX_REF_SLAVE_TIME * MAX_COL_NUM + // slaveKeyID
             MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN + // constraintName
             MAX_FK_MASTER_TIME + // fkSlave
             MAX_INDEX_NUM * MAX_INDEX_NAME_LEN + // indexName
@@ -75,53 +80,16 @@ class Header : public BaseHeader{
         const static int fkOffset = sizeof(uint) * 8 + // 8 * uint
             sizeof(ushort) * MAX_COL_NUM + // attrLenth
             MAX_COL_NUM + // attrType
-            MAX_COL_NUM * MAX_ATTRI_NAME_LEN; // attrName
+            MAX_COL_NUM * MAX_ATTRI_NAME_LEN + // attrName
+            MAX_COL_NUM; // primaryKeyID
         
         /* 索引部分的offset */
         const static int idxOffset = fkOffset +
             MAX_REF_SLAVE_TIME + // fkMaster
-            MAX_REF_SLAVE_TIME * sizeof(uint) * 2 + // masterKeyID, slaveKeyID
+            MAX_REF_SLAVE_TIME * MAX_COL_NUM + // slaveKeyID
             MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN + // constraintName
             MAX_FK_MASTER_TIME;// fkSlave
 
-#ifdef DEBUG
-        void DebugPrint()override{
-            printf("recordLenth = %u\n", recordLenth);
-            printf("slotNum = %u\n", slotNum);
-            printf("recordNum = %u\n", recordNum);
-            printf("exploitedNum = %u\n", exploitedNum);
-            printf("nullMask = %u\n", nullMask);
-            printf("primaryKeyMask = %u\n", primaryKeyMask);
-            printf("foreignKeyMask = %u\n", foreignKeyMask);
-            printf("defaultKeyMask = %u\n", defaultKeyMask);
-            printf("***attrLenth:\n    ");
-            for(int i = 0; i < MAX_COL_NUM; i ++) // updated for ushort
-                printf("(%d, %hu) ", i, attrLenth[i]);
-            printf("\n");
-            printf("***attrType:\n    ");
-            for(int i = 0; i < MAX_COL_NUM; i ++)
-                printf("(%d, %s) ", i, DataType::NameofType(attrType[i]));
-            printf("\n");
-            printf("***attriName:\n    ");
-            for(int i = 0; i < MAX_COL_NUM; i ++)
-                printf("(%d, %.*s) ", i, MAX_ATTRI_NAME_LEN, attrName[i]);
-            printf("\n");
-            printf("***fkMaster:\n    ");
-            for(int i = 0; i < MAX_COL_NUM; i++)
-                printf("(%d, %c) ", i, fkMaster[i]);
-            printf("\n");
-            printf("***masterKeyID:\n    ");
-            for(int i = 0; i < MAX_COL_NUM; i++)
-                printf("(%d, %d) ", i, masterKeyID[i]);
-            printf("\n");
-            printf("***fkSlave:\n    ");
-            for(int i = 0; i < MAX_FK_MASTER_TIME; i++)
-                printf("(%d, %c) ", i, fkSlave[i]);
-            printf("\n");
-            printf("<<<End of table\n");
-            // TODO: more information?
-        }
-#endif
         int GetLenth()override{
             return lenth;
         }
@@ -147,15 +115,15 @@ class Header : public BaseHeader{
 
             memcpy(charPtr, attrName, MAX_COL_NUM * MAX_ATTRI_NAME_LEN);
             charPtr += MAX_COL_NUM * MAX_ATTRI_NAME_LEN;
+
+            memcpy(charPtr, primaryKeyID, MAX_COL_NUM);
+            charPtr += MAX_COL_NUM;
             // foreign key part
             memcpy(charPtr, fkMaster, MAX_REF_SLAVE_TIME);
             charPtr += MAX_REF_SLAVE_TIME;
 
-            memcpy(charPtr, masterKeyID, MAX_REF_SLAVE_TIME * sizeof(uint));
-            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
-
-            memcpy(charPtr, slaveKeyID, MAX_REF_SLAVE_TIME * sizeof(uint));
-            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
+            memcpy(charPtr, slaveKeyID, MAX_REF_SLAVE_TIME * MAX_COL_NUM);
+            charPtr += MAX_REF_SLAVE_TIME * MAX_COL_NUM;
 
             memcpy(charPtr, constraintName, MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN);
             charPtr += MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN;
@@ -192,15 +160,15 @@ class Header : public BaseHeader{
 
             memcpy(attrName, charPtr, MAX_COL_NUM * MAX_ATTRI_NAME_LEN);
             charPtr += MAX_COL_NUM * MAX_ATTRI_NAME_LEN;
+
+            memcpy(primaryKeyID, charPtr, MAX_COL_NUM);
+            charPtr += MAX_COL_NUM;
             // foreign key part
             memcpy(fkMaster, charPtr, MAX_REF_SLAVE_TIME);
             charPtr += MAX_REF_SLAVE_TIME;
 
-            memcpy(masterKeyID, charPtr, MAX_REF_SLAVE_TIME * sizeof(uint));
-            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
-
-            memcpy(slaveKeyID, charPtr, MAX_REF_SLAVE_TIME * sizeof(uint));
-            charPtr += MAX_REF_SLAVE_TIME * sizeof(uint);
+            memcpy(slaveKeyID, charPtr, MAX_REF_SLAVE_TIME * MAX_COL_NUM);
+            charPtr += MAX_REF_SLAVE_TIME * MAX_COL_NUM;
 
             memcpy(constraintName, charPtr, MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN);
             charPtr += MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN;

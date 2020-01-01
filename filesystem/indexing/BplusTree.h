@@ -26,7 +26,7 @@
 class BplusTree{
         // find the first record whose key is >= 'data'
         // store its b+ tree node and pos in node into 'node' and 'pos'
-        void _search(const uchar* data, BplusTreeNode*& node, int& pos);
+        void _search(const uchar* data, BplusTreeNode*& node, int& pos, bool isConstant = false);
         int fid;
         int page;
         int headerIdx;
@@ -258,6 +258,7 @@ class BplusTree{
             return ret;
         }
 
+        // NOTE: data是常量记录,即varchar以字符串方式存储
         bool SafeValueSearch(const uchar* data, RID* rid){
             bool ret = ValueSearch(data, rid);
             ClearAndWriteBackOpenedNodes();

@@ -332,7 +332,7 @@ class Table{
          * ! Unchecked: primary key
          * TODO: conflicts with existing records
         */
-        int AddFKMaster(uchar masterID, uint slaveKeys, uint masterKeys, const char* fkName){
+        int AddFKMaster(uchar masterID, std::vector<uchar> slaveKeys, uint masterKeys, const char* fkName){
             if(fkMasterCount == MAX_REF_SLAVE_TIME) // full
                 return 2;
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
@@ -344,10 +344,13 @@ class Table{
             memcpy(header->constraintName[fkMasterCount], fkName, strnlen(fkName, MAX_CONSTRAINT_NAME_LEN));
             // update master table ID
             header->fkMaster[fkMasterCount] = masterID;
-            // update master key ID
-            header->masterKeyID[fkMasterCount] = masterKeys;
+            // // update master key ID
+            // header->masterKeyID[fkMasterCount] = masterKeys;
             // update slave key ID
-            header->slaveKeyID[fkMasterCount] = slaveKeys;
+            int slave_pos = 0;
+            for(auto slave_key_it = slaveKeys.begin(); slave_key_it != slaveKeys.end(); slave_key_it++)
+                header->slaveKeyID[fkMasterCount][slave_pos] = *slave_key_it;
+            memset(header->slaveKeyID[fkMasterCount] + slave_pos, COL_ID_NONE, MAX_COL_NUM - slave_pos);
             // sync
             headerDirty = true;
             fkMasterCount++;
@@ -373,12 +376,12 @@ class Table{
             // update master ID, type: uchar
             memcpy(&header->fkMaster[pos], &header->fkMaster[pos + 1], fkMasterCount - pos - 1);
             header->fkMaster[fkMasterCount - 1] = TB_ID_NONE;
-            // update master key ID, type: uint
-            memcpy(&header->masterKeyID[pos], &header->masterKeyID[pos + 1], (fkMasterCount - pos - 1) * sizeof(uint));
-            header->masterKeyID[fkMasterCount - 1] = 0;
+            // // update master key ID, type: uint
+            // memcpy(&header->masterKeyID[pos], &header->masterKeyID[pos + 1], (fkMasterCount - pos - 1) * sizeof(uint));
+            // header->masterKeyID[fkMasterCount - 1] = 0;
             // update slave key ID, type: uint
-            memcpy(&header->slaveKeyID[pos], &header->slaveKeyID[pos + 1], (fkMasterCount - pos - 1) * sizeof(uint));
-            header->slaveKeyID[fkMasterCount - 1] = 0;
+            memcpy(header->slaveKeyID[pos], header->slaveKeyID[pos + 1], (fkMasterCount - pos - 1) * MAX_COL_NUM);
+            memset(header->slaveKeyID[fkMasterCount - 1], 0, MAX_COL_NUM);
             // sync
             headerDirty = true;
             fkMasterCount--;
@@ -522,6 +525,10 @@ class Table{
 
         int ColNum(){
             return colCount;
+        }
+
+        int FKMasterNum(){
+            return fkMasterCount;
         }
 
         int ColOffset(int i){

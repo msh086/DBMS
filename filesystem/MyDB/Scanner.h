@@ -170,6 +170,7 @@ class Scanner{
          * 即attr_left cmp attr_right,selfs中的多个自比较之间的关系为'且'
         */
         void AddSelfCmp(uchar left, uchar right, uchar cmp){
+            mode = arr;
             selfs.push_back(SelfCmp(left, right, cmp));
         }
         /**

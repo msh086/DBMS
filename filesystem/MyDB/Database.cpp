@@ -3,24 +3,25 @@
 BufPageManager* Database::bpm = BufPageManager::Instance();
 FileManager* Database::fm = FileManager::Instance();
 std::vector<Table*> Database::activeTables;
+std::vector<BplusTree*> Database::trees;
 
 // table ops
 int Table::CreateIndexOn(std::vector<uchar> cols, const char* idxName){
     if(idxCount == MAX_INDEX_NUM) // full
         return 2;
     headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-    for(int i = 0; i < MAX_INDEX_NUM; i++)
+    for(int i = 0; i < idxCount; i++)
         if(identical(idxName, (char*)header->indexName[i], MAX_INDEX_NAME_LEN)) // conflict
             return 1;
     // update idx name
     memcpy(header->indexName[idxCount], idxName, strnlen(idxName, MAX_INDEX_NAME_LEN));
     int idxColNum = cols.size();
     for(int i = 0; i < idxColNum; i++)
-        header->indexID[idxCount][idxColNum] = cols[i];
+        header->indexID[idxCount][i] = cols[i];
     // operation on idx table
     IndexHeader* idxHeader = new IndexHeader();
     idxHeader->nullMask = -1;
-    for(int i = 0; i < idxCount; i++){
+    for(int i = 0; i < idxColNum; i++){
         idxHeader->attrType[i] = header->attrType[cols[i]];
         idxHeader->attrLenth[i] = header->attrLenth[cols[i]];
         idxHeader->indexColID[i] = cols[i];
@@ -49,8 +50,8 @@ bool Table::RemoveIndex(const char* idxName){
     // update index name, type: uchar[]
     memcpy(header->indexName[pos], header->indexName[pos + 1], (idxCount - pos - 1) * MAX_INDEX_NAME_LEN);
     memset(header->indexName[idxCount - 1], 0, MAX_INDEX_NAME_LEN);
-    // update index col ID, type: uint
-    memcpy(&header->indexID[pos], &header->indexID[pos + 1], (idxCount - pos - 1) * sizeof(uint));
+    // update index col ID, type: uchar[]
+    memcpy(&header->indexID[pos], &header->indexID[pos + 1], (idxCount - pos - 1) * MAX_COL_NUM);
     memset(header->indexID[idxCount - 1], COL_ID_NONE, MAX_COL_NUM);
     // remove tree
     BplusTree* tree = new BplusTree(db->idx, header->bpTreePage[pos]);
@@ -127,15 +128,11 @@ void Table::Print(){
         assert(master);
 
         printf("Foreign key constraint %.*s", MAX_CONSTRAINT_NAME_LEN, header->constraintName[i]);
-        for(uint j = 0, colMask = header->slaveKeyID[i]; colMask != 0; j++, colMask <<= 1){
-            if(colMask & 0x80000000)
-                printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[j]);
-        }
+        for(int j = 0; j < MAX_COL_NUM && header->slaveKeyID[i][j] != COL_ID_NONE; j++)
+            printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[header->slaveKeyID[i][j]]);
         printf(" references");
-        for(uint j = 0, colMask = header->masterKeyID[i]; colMask != 0; j++, colMask <<= 1){
-            if(colMask & 0x80000000)
-                printf(" %.*s", MAX_ATTRI_NAME_LEN, master->header->attrName[j]);
-        }
+        for(int j = 0; j < MAX_COL_NUM && master->header->primaryKeyID[j] != COL_ID_NONE; j++)
+            printf(" %.*s", MAX_ATTRI_NAME_LEN, master->header->attrName[master->header->primaryKeyID[j]]);
         putchar('\n');
         db->CloseTable(tableNameBuf);
         tmpRec.FreeMemory();

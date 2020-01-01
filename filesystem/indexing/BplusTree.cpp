@@ -32,26 +32,30 @@ uchar* BplusTreeNode::KeynPtrAt(int pos){
     return data + BplusTreeNode::reservedBytes + pos * (tree->header->recordLenth + 8);
 }
 
-int BplusTreeNode::findFirstGreaterInInternal(const uchar* data){
+int BplusTreeNode::findFirstGreaterInInternal(const uchar* data, bool isConstant){
     checkBuffer();
     uchar* cmpData = this->data + BplusTreeNode::reservedBytes;
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth){
         // TODO: binary search maybe ?
         // find the first element > data
-        if(DataType::greaterThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum)){
+        if(DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum, Comparator::Gt, false, isConstant))
             return i;
-        }
+        // if(DataType::greaterThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum)){
+        //     return i;
+        // }
     }
     return size;
 }
 
-int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data){
+int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data, bool isConstant){
     checkBuffer();
     uchar* cmpData = this->data + BplusTreeNode::reservedBytes;
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth + 8){
-        if(DataType::noLessThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum)){
+        if(DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum, Comparator::GtEq, false, isConstant))
             return i;
-        }
+        // if(DataType::noLessThanArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, tree->colNum)){
+        //     return i;
+        // }
     }
 }
 
@@ -130,17 +134,17 @@ void BplusTreeNode::RemoveKeynPtrAt(int pos){
  * Methods in BplusTree
 */
 
-void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos){
+void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, bool isConstant){
     BplusTreeNode* cur = root;
     while(cur->type == BplusTreeNode::Internal){
         // a leaf node may be under-sized, but an internal node will never be
-        int posG = cur->findFirstGreaterInInternal(data); // pos is the exact subtree id to look up in
+        int posG = cur->findFirstGreaterInInternal(data, isConstant); // pos is the exact subtree id to look up in
         cur = GetTreeNode(cur, *cur->NodePtrAt(posG));
         cur->posInParent = posG;
     }
     // now at the leaf node
     node = cur;
-    pos = cur->findFirstEqGreaterInLeaf(data);
+    pos = cur->findFirstEqGreaterInLeaf(data, isConstant);
 }
 // insertion of duplicate record is permitted
 void BplusTree::Insert(const uchar* data, const RID& rid){
@@ -365,11 +369,13 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
     } // end overflow case
 }
 
-bool BplusTree::Search(const uchar* data, const RID& rid){
+bool BplusTree::Search(const uchar* data, const RID& rid){ // TODO: compare equal
     BplusTreeNode* node = nullptr;
     int pos = -1;
     _search(data, node, pos);
     if(pos == node->size) // no match is found
+        return false;
+    if(!DataType::compareArr(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, colNum, Comparator::Eq))
         return false;
     bool found = false;
     do{
@@ -385,8 +391,10 @@ bool BplusTree::Search(const uchar* data, const RID& rid){
 bool BplusTree::ValueSearch(const uchar* data, RID* rid){
     BplusTreeNode* node = nullptr;
     int pos = -1;
-    _search(data, node, pos);
+    _search(data, node, pos, true); // ? data is constant
     if(pos == node->size) // no match is found
+        return false;
+    if(!DataType::compareArr(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, colNum, Comparator::Eq, false, true))
         return false;
     uint* curRID = (uint*)(node->KeynPtrAt(pos) + header->recordLenth);
     rid->PageNum = curRID[0];

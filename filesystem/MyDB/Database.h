@@ -7,6 +7,7 @@
 #include "../RM/SimpleUtils.h"
 #include "Scanner.h"
 #include <vector>
+#include "../indexing/BplusTree.h"
 
 class Database{
     char name[MAX_DB_NAME_LEN] = "";
@@ -14,9 +15,10 @@ class Database{
     static BufPageManager* bpm;
     static FileManager* fm;
 
-    // static Table* activeTables[MAX_TB_NUM];
+
     static std::vector<Table*> activeTables;
-    // static int activeTableNum;
+
+    static std::vector<BplusTree*> trees;
 
     // Private helper methods added by msh
     int getActiveTableIndex(const char* tablename){
@@ -296,14 +298,35 @@ class Database{
 
         bool RenameTable(const char* oldName, const char* newName){
             // TODO, close first if opened?
+            // TODO: table named new name may exist
             if(TableExists(oldName)){ // after calling tableExist(name), the found record is stored in 'rec'
                 memset(rec->GetData() + 4, 0, MAX_TABLE_NAME_LEN); // ? null word
                 memcpy(rec->GetData() + 4, newName, strlen(newName));
                 info->UpdateRecord(*rec->GetRid(), rec->GetData(), 0, 0, MAX_TABLE_NAME_LEN);
+                rename(getPath(oldName), getPath(newName));
                 return true;
             }
             else
                 return false;
+        }
+
+        /**
+         * 通过表名获取表ID
+        */
+        uchar GetTableID(const char* name){
+            if(TableExists(name))
+                return rec->GetRid()->SlotNum - 1;
+            return TB_ID_NONE;
+        }
+
+        /**
+         * 通过表ID获取表名
+        */
+        void GetTableName(uchar tableID, uchar* dst){
+            RID tmpRID(1, tableID + 1);
+            info->GetRecord(tmpRID, rec);
+            memcpy(dst, rec->GetData() + 4, MAX_TABLE_NAME_LEN); // skip null word
+            rec->FreeMemory();
         }
 
         /**
@@ -425,6 +448,16 @@ class Database{
         Scanner* ShowTables(){
             infoScanner->SetDemand([](const Record& record)->bool{return true;});
             return infoScanner;
+        }
+
+        void TakeCareOfTree(BplusTree* tree){
+            trees.push_back(tree);
+        }
+
+        void ClearTrees(){
+            for(auto tree_it = trees.begin(); tree_it != trees.end(); tree_it++)
+                delete *tree_it;
+            trees.clear();
         }
 
         /**
