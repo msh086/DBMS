@@ -209,7 +209,7 @@ class Database{
             if(header->defaultKeyMask){ // insert the default record. Note that even there is no default record, page 1 is still seen as occupied
                 uchar* defaultBuf = new uchar[PAGE_SIZE]{};
                     memcpy(defaultBuf, defaultRecord, header->recordLenth);
-                int defaultret = fm->writePage(fid, 1, (BufType)defaultBuf, 0);
+                int defaultret = fm->writePage(fid, START_PAGE, (BufType)defaultBuf, 0);
                 delete[] defaultBuf;
                 if(defaultret != 0)
                     printf("In Database::CreateTable, cannot write default record\n");

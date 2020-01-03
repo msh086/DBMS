@@ -16,3 +16,23 @@ void clearBitFromLeft(uint& bitmap, int posFromLeft){
 void setBitFromLeft(uint& bitmap, int posFromLeft){
     bitmap |= 1 << (31 - posFromLeft);
 }
+
+float readFloatFromString(const char* src){
+    const char* dot = strchr(src, '.');
+    int len = strlen(src);
+    int dotPos = 0;
+    if(dot)
+        dotPos = dot - src;
+    else
+        dotPos = len;
+    float ans = 0;
+    for(int i = 0; i < dotPos; i++){
+        ans = ans * 10 + src[i] - '0';
+    }
+    float unit = 0.1f;
+    for(int i = dotPos + 1; i < len; i++){
+        ans += unit * (src[i] - '0');
+        unit /= 10;
+    }
+    return ans;
+}

@@ -31,9 +31,30 @@
 #include <vector>
 #include <algorithm>
 #include <ctime>
+#include <fstream>
 
 using namespace std;
 int main() {
+	char filename[30] = "../../testfile.txt";
+	std::ifstream fin;
+	fin.open(filename);
+	if(fin.fail())
+		return 1;
+	char buffer[200] = "";
+	char c;
+	while(char c = fin.get()){
+		if(c == EOF)
+			break;
+		printf("%c", c);
+	}
+	// while(fin.getline(buffer, 200)){
+	// 	printf("line with length of %d: %.*s\n", strnlen(buffer, 200), 200, buffer);
+	// 	memset(buffer, 0, 200);
+	// }
+	fin.close();
+	return 0;
+
+
 	DBMS::Instance()->Init();
 	DBMS::Instance()->CreateDatabase("db");
 	Database* db = DBMS::Instance()->UseDatabase("db");
@@ -49,7 +70,7 @@ int main() {
 	BplusTree* tree = new BplusTree(tb, ih);
 	RID rid(5, 6);
 
-	int eleCount = 20000; // internal cap = 682, external cap = 511. About 30 full nodes
+	int eleCount = 10; // internal cap = 682, external cap = 511. About 30 full nodes
 	std::vector<int> vec;
 	for(int i = 0; i < eleCount; i++)
 		vec.push_back(i);
@@ -59,12 +80,12 @@ int main() {
 	for(int i = 0; i < eleCount; i++)
 		printf("%d ", vec.at(i));
 	printf("\n");
-	uint buf[8] = {0};
+	uint buf[2] = {0};
 	for(int i = 0; i < eleCount; i++){
 		buf[1] = vec.at(i);
-		tree->SafeInsert((uchar*)buf, rid);
-		// tree->DebugPrint();
-		// printf("\n");
+		tree->SafeInsert((uchar*)&buf, rid);
+		tree->DebugPrint();
+		printf("\n");
 	}
 	// tree->DebugPrint();
 	// printf("\n");
@@ -75,11 +96,14 @@ int main() {
 		printf("%d ", vec.at(i));
 	printf("\n");
 	for(int i = 0; i < eleCount; i++){
-		tree->SafeRemove((uchar*)&vec.at(i), rid);
-		if(i > eleCount - 5){ // print the last 5 removals...
-			tree->DebugPrint();
-			printf("\n");
-		}
+		buf[1] = vec.at(i);
+		tree->SafeRemove((uchar*)&buf, rid);
+		// if(i > eleCount - 5){ // print the last 5 removals...
+		// 	tree->DebugPrint();
+		// 	printf("\n");
+		// }
+		tree->DebugPrint();
+		printf("\n");
 	}
 
 	int bufInt = 0;

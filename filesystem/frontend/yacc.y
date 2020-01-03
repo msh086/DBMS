@@ -183,7 +183,31 @@ DbStmt		:	CREATE DATABASE IDENTIFIER
 			|	COPY IDENTIFIER FROM STRING_LIT WITH '(' DELIMITER STRING_LIT ')'
 				{
 					printf("YACC: copy table\n");
-					// TODO: load table from file
+					Global::types.push_back($1);
+					Global::types.push_back($2);
+					Global::types.push_back($4);
+					Global::types.push_back($8);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T2 = typeVec[1], &T4 = typeVec[2], &T8 = typeVec[3];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T2.val.str.data());
+						if(table == nullptr){
+							Global::NoSuchTable(T2.pos, T2.val.str.data());
+							return false;
+						}
+						if(T8.val.str.length() != 1){
+							Global::NotCharacter(T8.pos);
+							return false;
+						}
+						if(!table->BatchLoad(T4.val.str.data(), T8.val.str[0])){
+							Global::FileNotFound(T4.pos, T4.val.str.data());
+							return false;
+						}
+						return true;
+					};
 				}
 			;
 
@@ -385,7 +409,6 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						return true;
 					};
-					// Global::action = Debugger::debug;
 				}
 			|	DROP TABLE IDENTIFIER
 				{
@@ -461,7 +484,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							return false;
 						}
 						Record tmpRec;
-						RID tmpRID(1, 0);
+						RID tmpRID(START_PAGE, 0);
 						table->GetRecord(tmpRID, &tmpRec); // the default record
 						const Header* header = table->GetHeader();
 						for(auto list_it = T5.valLists.begin(); list_it != T5.valLists.end(); list_it++){
@@ -627,6 +650,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						return true;
 					};
+					Global::action = Debugger::debug;
 				}
 			|	DELETE FROM IDENTIFIER WHERE whereClause
 				{

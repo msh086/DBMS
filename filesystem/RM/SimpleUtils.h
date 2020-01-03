@@ -22,4 +22,22 @@ void clearBitFromLeft(uint& bitmap, int posFromLeft);
 
 void setBitFromLeft(uint& bitmap, int posFromLeft);
 
+template<typename T>
+T readNumFromString(const char* src, int& pos){
+    T ans = 0;
+    bool sign = false;
+    if(src[0] == '-')
+        sign = true;
+    while(true){
+        if(src[pos] >= '0' && src[pos] <= '9')
+            ans = ans * 10 + src[pos] - '0';
+        else
+            break;
+        pos++;
+    }
+    return sign ? -ans : ans;
+}
+
+float readFloatFromString(const char* src);
+
 #endif

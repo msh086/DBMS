@@ -7,6 +7,7 @@
 #include <vector>
 #include <string>
 #include <cassert>
+#include <fstream>
 #include "../frontend/Printer.h"
 class DBMS;
 class Database;
@@ -55,29 +56,56 @@ class Table{
      * The index starts from 0
     */
     int firstZeroBit(){
-        uchar* src = headerBuf + header->GetLenth();
+        headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+        uchar* src = headerBuf;
         int size = header->exploitedNum;
-        int fullByte = size >> 3;
-        uchar allOnes = 255;
-        for(int i = 0; i < fullByte; i++){
-            if(src[i] != allOnes){
-                int pos = 0;
-                uchar msb = 128;
-                while(src[i] & msb){
-                    pos++;
-                    msb >>= 1;
-                }
-                return (i << 3) + pos;
+        int globalEnd = (size >> 3) + header->GetLenth();
+        int localPos = header->GetLenth(), globalPos = header->GetLenth();
+        int curPage = 0;
+        while(globalPos < globalEnd){
+            if(src[localPos] != 0xff){
+                for(int i = 0; i < 8; i++)
+                    if(src[localPos] & (0x80 >> i) == 0)
+                        return ((globalPos - header->GetLenth()) << 3) + i;
+                assert(false);
+            }
+            globalPos++;
+            localPos++;
+            if(localPos == PAGE_SIZE){
+                localPos = 0;
+                src = tmpBuf = bpm->reusePage(fid, ++curPage, tmpIdx, tmpBuf);
             }
         }
-        int pos = 0, remain = size & 7;
-        uchar msb = 128;
-        src += fullByte;
-        while((src[0] & msb) && pos < remain){
-            pos++;
-            msb >>= 1;
-        }
-        return pos + (fullByte << 3);
+        int remain = size & 7;
+        for(int i = 0; i < remain; i++)
+            if(src[localPos] & (0x80 >> i) == 0)
+                return ((globalPos - header->GetLenth()) << 3) + i;
+        return size;
+
+        // uchar* src = headerBuf + header->GetLenth();
+        // int size = header->exploitedNum;
+        // int fullByte = size >> 3;
+        // uchar allOnes = 255;
+        // for(int i = 0; i < fullByte; i++){
+        //     if(src[i] != allOnes){
+        //         int pos = 0;
+        //         uchar msb = 128;
+        //         while(src[i] & msb){
+        //             pos++;
+        //             msb >>= 1;
+        //         }
+        //         return (i << 3) + pos;
+        //     }
+        // }
+        // int pos = 0, remain = size & 7;
+        // uchar msb = 128;
+        // src += fullByte;
+        // while((src[0] & msb) && pos < remain){
+        //     pos++;
+        //     msb >>= 1;
+        // }
+        // return pos + (fullByte << 3);
+
         //If pos < remain, there is an empty slot before the furthest record
         //otherwise, pos == remain, it points to the empty slot right after the furthest record. The the return value equals header->exploitedNum
     }
@@ -86,78 +114,113 @@ class Table{
      * Returns the position of the first 1 bit starting from pos(included), or -1 if non exists
     */
     int firstOneBitFrom(int pos){
-        int startByte = pos >> 3, startBit = pos & 7;
-        int endByte = header->exploitedNum >> 3, endBit = header->exploitedNum & 7;
+        int startByte = (pos >> 3) + header->GetLenth(), startBit = pos & 7;
+        int endByte = (header->exploitedNum >> 3) + header->GetLenth(), endBit = header->exploitedNum & 7;
         if(startByte > endByte)
             return -1;
-        headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-        uchar* src = headerBuf + header->GetLenth();
-        uchar allOnes = 255;
+        int curPage = startByte / PAGE_SIZE, localPos = startByte % PAGE_SIZE;
+        uchar* src = nullptr;
+        if(curPage == 0)
+            src = headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+        else
+            src = tmpBuf = bpm->reusePage(fid, curPage, tmpIdx, tmpBuf);
         //[(startBytes, startBit), (startByte, endBit))
         if(startByte == endByte){
-            int prober = 128 >> startBit;
-            int bit = startBit;
-            while(bit < endBit)
-                if(prober & src[startByte])
-                    return (startByte << 3) + bit;
-                else{
-                    prober >>= 1;
-                    bit ++;
-                }
+            for(int i = startBit; i < endBit; i++)
+                if(src[localPos] & (0x80 >> i))
+                    return ((startByte - header->GetLenth()) << 3) + i;
             return -1;
         }
 
         //[(startByte, startBit), (startByte, 8))
-        for(int i = startBit, prober = 128 >> startBit; i < 8; i ++, prober >>= 1){
-            if(src[startByte] & prober)
-                return (startByte << 3) + i;
+        for(int i = startBit; i < 8; i ++){
+            if(src[localPos] & (0x80 >> i))
+                return ((startByte - header->GetLenth()) << 3) + i;
+        }
+        localPos++;
+        if(localPos == PAGE_SIZE){
+            localPos = 0;
+            src = tmpBuf = bpm->reusePage(fid, ++curPage, tmpIdx, tmpBuf);
         }
 
         //[(startByte + 1, 0), (endByte - 1, 8))
-        for(int i = startByte + 1; i < endByte; i ++){
-            if(src[i] == allOnes)
-                continue;
-            for(int j = 0, prober = 128; j < 8; j ++, prober >>= 1){
-                if(src[i] & prober)
-                    return (i << 3) + j;
+        for(int i = startByte + 1; i < endByte; i++){
+            if(src[localPos]){
+                for(int j = 0; j < 8; j++){
+                    if(src[localPos] & (0x80 >> j))
+                        return ((i - header->GetLenth()) << 3) + j;
+                }
+                assert(false);
             }
-            printf("You should not have reached here!\n");
+            else{
+                localPos++;
+                if(localPos == PAGE_SIZE){
+                    localPos = 0;
+                    src = tmpBuf = bpm->reusePage(fid, ++curPage, tmpIdx, tmpBuf);
+                }
+            }
         }
 
         //[(endByte, 0), (endByte, endBit))
-        for(int i = 0, prober = 128; i < endBit; i ++, prober >>= 1){
-            if(src[endByte] & prober)
-                return (endByte << 3) + i;
+        for(int i = 0; i < endBit; i++){
+            if(src[localPos] & (0x80 >> i))
+                return ((endByte - header->GetLenth()) << 3) + i;
         }
-
         return -1;
     }
 
+    /**
+     * 位图变化导致的内存的markDirty和headerDirty由该函数维护
+    */
     void setBit(int pos){
-        uchar* src = headerBuf + header->GetLenth();
-        int bytes = pos >> 3, remain = pos & 7;
-        (*(src + bytes)) |= (128 >> remain);
+        int bytes = header->GetLenth() + (pos >> 3), remain = pos & 7;
+        int dstPage = bytes / PAGE_SIZE, localPos = bytes % PAGE_SIZE;
+        uchar* src = nullptr;
+        if(dstPage == 0){
+            src = headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            bpm->markDirty(headerIdx); // ? headerDirty,这里更改了buffer中的内容,只能通过bpm写回
+            // ? trackers不记录header page的信息,因为header page不需要跟踪
+        }
+        else{
+            src = tmpBuf = bpm->reusePage(fid, dstPage, tmpIdx, tmpBuf);
+            bpm->markDirty(tmpIdx);
+            trackers.push_back(BufTracker(dstPage, tmpIdx));
+        }
+        (*(src + localPos)) |= (0x80 >> remain);
     }
 
+    /**
+     * 位图变化导致的内存的markDirty和headerDirty由该函数维护
+    */
     void clearBit(int pos){
-        uchar* src = headerBuf + header->GetLenth();
-        int bytes = pos >> 3, remain = pos & 7;
-        (*(src + bytes)) &= ~(128 >> remain);
+        int bytes = header->GetLenth() + (pos >> 3), remain = pos & 7;
+        int dstPage = bytes / PAGE_SIZE, localPos = bytes % PAGE_SIZE;
+        uchar* src = nullptr;
+        if(dstPage == 0){
+            src = headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            bpm->markDirty(headerIdx);
+        }
+        else{
+            src = tmpBuf = bpm->reusePage(fid, dstPage, tmpIdx, tmpBuf);
+            bpm->markDirty(tmpIdx);
+            trackers.push_back(BufTracker(dstPage, tmpIdx));
+        }
+        (*(src + localPos)) &= ~(0x80 >> remain);
     }
 
     uint RIDtoUint(const RID* rid){
-        return (rid->PageNum - 1) * header->slotNum + rid->SlotNum;
+        return (rid->PageNum - START_PAGE) * header->slotNum + rid->SlotNum;
     }
 
     RID* UintToRID(const uint& value, RID* rid){
-        rid->PageNum = value / header->slotNum + 1; // RID::pageNum starts from 1
+        rid->PageNum = value / header->slotNum + START_PAGE; // RID::pageNum starts from START_PAGE
         rid->SlotNum = value % header->slotNum;
         return rid;
     }
 
     public:
 #ifdef DEBUG
-        void DebugPrint(){
+        void DebugPrint(){ // ! Don't use me
             header->DebugPrint();
             printf("***bitmap:\n    ");
             uchar* src = headerBuf + header->GetLenth();
@@ -195,12 +258,11 @@ class Table{
          * Only properties in ANS is dynamically allocated, which will be freed with ANS
         */
         Record* GetRecord(const RID& rid, Record* ans){
-            if(rid.GetPageNum() == 0){
-                printf("In Table::GetRecord, trying to get record from the header page\n");
+            if(rid.GetPageNum() < START_PAGE){
+                printf("In Table::GetRecord, trying to get record from the header page or bitmap pages\n");
                 return nullptr;
             }
             tmpBuf = bpm->reusePage(fid, rid.GetPageNum(), tmpIdx, tmpBuf);
-            bpm->access(tmpIdx);
             trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
             ans->data = new uchar[header->recordLenth];
             memcpy(ans->data, ((uchar*)tmpBuf) + rid.GetSlotNum() * header->recordLenth, header->recordLenth);
@@ -208,16 +270,58 @@ class Table{
             return ans;
         }
 
+        void ConvertTextToBin(const char* src, uchar* dst, ushort length, uchar type);
+
+        bool BatchLoad(const char* filename, char delim){
+            std::ifstream fin;
+            fin.open(filename);
+            if(fin.fail())
+                return false;
+            char lineBuf[PAGE_SIZE] = {0};
+            uchar recBuf[header->recordLenth] = {0};
+            int iter = 0, last = 0; // [last, iter) in linebuf
+            int recPos = 4, recField = 0;
+            char c;
+            while(true){
+                c = fin.get();
+                if(c == EOF)
+                    break;
+                if(c == '\n'){
+                    assert(recField == colCount);
+                    RID rid;
+                    InsertRecord(recBuf, &rid);
+                    memset(lineBuf, 0, iter);
+                    memset(recBuf, 0, sizeof(recBuf));
+                    last = iter = 0;
+                    recPos = 4;
+                    recField = 0;
+                    continue;
+                }
+                if(c == delim){ // handle field
+                    assert(recField < colCount);
+                    if(strncmp(lineBuf + last, "null", iter - last) == 0)
+                        setBitFromLeft(*(uint*)recBuf, recField);
+                    else
+                        ConvertTextToBin(lineBuf + last, recBuf + recPos, header->attrLenth[recField], header->attrType[recField]);
+                    recPos += DataType::lengthOf(header->attrType[recField], header->attrLenth[recField]);
+                    recField++;
+                    last = iter;
+                }
+                else
+                    lineBuf[iter++] = c;
+            }
+            return true;
+        }
+
         /**
          * Return the RID of the inserted record
          * No dynamic memory will be allocated
         */
         RID* InsertRecord(const uchar* data, RID* rid){
-            //updating the header
-            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
+            // 更新位图
             int firstEmptySlot = firstZeroBit();
             setBit(firstEmptySlot);
-            bpm->markDirty(headerIdx); // the bit map is not a part of header, it could only be written back by bpm
+            // 更新header
             header->recordNum++;
             if(firstEmptySlot == header->exploitedNum)
                 header->exploitedNum++;
@@ -232,21 +336,19 @@ class Table{
         }
 
         void DeleteRecord(const RID& rid){
-            if(rid.GetPageNum() == 0){
-                printf("In Table::DeleteRecord, trying to delete a record from header page\n");
+            if(rid.GetPageNum() < START_PAGE){
+                printf("In Table::DeleteRecord, trying to delete a record from header page or bitmap pages\n");
                 return;
             }
-            //updating the header
-            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-            trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
+            // 更新位图
             int slotNumber = RIDtoUint(&rid);
             clearBit(slotNumber);
-            bpm->markDirty(headerIdx);
+            // 更新header
             if(slotNumber == header->exploitedNum - 1)
                 header->exploitedNum--;
             header->recordNum--;
             headerDirty = true;
-            //no need to clear the memory
+            // 和实际记录页没有关系,不需要重新格式化内存
         }
 
         /**
@@ -438,7 +540,7 @@ class Table{
         uint BestIndexFor(uint cols){
             uint ans = 0;
             for(int i = 0; i < idxCount; i++){
-                
+                // TODO
             }
         }
 
@@ -473,8 +575,8 @@ class Table{
          * Get the RID of the first record after rid (excluded), return success/failure
         */
         bool NextRecord(RID& rid){
-            if(rid.PageNum == 0){
-                printf("In Table::NextRecord, pageNum is 0\n");
+            if(rid.PageNum < START_PAGE){
+                printf("In Table::NextRecord, pageNum < START_PAGE\n");
                 return false;
             }
             int begin = RIDtoUint(&rid) + 1; // start from the next position

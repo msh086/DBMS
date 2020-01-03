@@ -42,9 +42,16 @@ std::string Printer::FieldToStr(const Record& tmpRec, uchar type, uchar index, u
                 }
                 if(!firstNonZero)
                     str.push_back('0');
+                int lastNonZero = p - 1;
+                while(lastNonZero > p - dotPos){
+                    if(buf[lastNonZero])
+                        break;
+                    lastNonZero--;
+                }
                 if(dotPos){
                     str.push_back('.');
-                    str.append((char*)(buf + p - dotPos), dotPos);
+                    for(int i = p - dotPos; i <= lastNonZero; i++)
+                        str.push_back(buf[i] + '0');
                 }
                 return str;
             }

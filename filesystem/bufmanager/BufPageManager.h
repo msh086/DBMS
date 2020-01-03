@@ -119,8 +119,10 @@ public:
 			return (uchar*)getPage(fileID, pageID, index);
 		int tmpFID, tmpPID;
 		getKey(index, tmpFID, tmpPID);
-		if(tmpFID == fileID && tmpPID == pageID)
+		if(tmpFID == fileID && tmpPID == pageID){
+			access(index);
 			return buf;
+		}
 		else
 			return (uchar*)getPage(fileID, pageID, index);
 	}

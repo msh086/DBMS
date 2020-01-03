@@ -147,3 +147,67 @@ void Table::Print(){
         printf("\n");
     }
 }
+
+void Table::ConvertTextToBin(const char* src, uchar* dst, ushort length, uchar type){
+            switch(type){
+                case DataType::NUMERIC:{
+                    bool hasSign = false;
+                    if(src[0] == '-'){
+                        hasSign = true;
+                        src++;
+                    }
+                    const char* dot = strchr(src, '.');
+                    int dotPos = 0;
+                    if(dot)
+                        dotPos = dot - src;
+                    else
+                        dotPos = strlen(src);
+                    DataType::floatToBin(hasSign, src, dotPos, dst, length >> 8, length & 0xff);
+                    break;
+                }
+                case DataType::DATE:{
+                    int pos = 0;
+                    int year = readNumFromString<int>(src, pos),
+                        month = readNumFromString<int>(src, ++pos),
+                        day = readNumFromString<int>(src, ++pos);
+                    DataType::dateToBin(year, month, day, dst);
+                    break;
+                }
+                case DataType::CHAR:{
+                    memcpy(dst, src, strlen(src));
+                    break;
+                }
+                case DataType::VARCHAR:{
+                    if(length <= 255)
+                        memcpy(dst, src, strlen(src));
+                    else{
+                        RID rid;
+                        db->InsertLongVarchar(src, strlen(src), &rid);
+                        *(uint*)dst = rid.PageNum;
+                        *(uint*)(dst + 4) = rid.SlotNum;
+                    }
+                    break;
+                }
+                case DataType::INT:{
+                    int pos = 0;
+                    int num = readNumFromString<int>(src, pos);
+                    *(int*)dst = num;
+                    break;
+                }
+                case DataType::FLOAT:{
+                    const char* dot = strchr(src, '.');
+                    int dotPos = 0;
+                    if(dot)
+                        dotPos = dot - src;
+                    float val = readFloatFromString(src);
+                    *(float*)dst = val;
+                    break;
+                }
+                case DataType::BIGINT:{
+                    int pos = 0;
+                    ll num = readNumFromString<ll>(src, pos);
+                    *(ll*)dst = num;
+                    break;
+                }
+            }
+        }

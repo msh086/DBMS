@@ -78,7 +78,7 @@ struct Field{
         }
     }
 
-    static uchar strToFloat(const std::string& str, float dst){
+    static uchar strToFloat(const std::string& str, float& dst){
         try{
             dst = std::stof(str);
             return 0;

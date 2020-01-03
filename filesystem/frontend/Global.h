@@ -152,10 +152,16 @@ class Global{
 		static void IllegalMinus(int pos){
 			newError(pos, "Can only apply '-' to INT, BIGINT and FLOAT type");
 		}
+		static void NotCharacter(int pos){
+			newError(pos, "Not a character");
+		}
 		
-		// special
+		// others
 		static void ComparisonToNull(int pos){
 			newError(pos, "'field op null' will match nothing");
+		}
+		static void FileNotFound(int pos, const char* name){
+			newError(pos, format("File named %s not found", name));
 		}
 };
 

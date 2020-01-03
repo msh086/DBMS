@@ -50,7 +50,7 @@ class Scanner{
     uchar types[MAX_COL_NUM] = {0};
     ushort lengths[MAX_COL_NUM] = {0};
 
-    RID* rid = new RID(1, 0);
+    RID* rid = new RID(START_PAGE, 0);
     Record* record = nullptr;
 
     struct SelfCmp{
@@ -203,7 +203,7 @@ class Scanner{
         * 重置scanner于表的最开始
         */
         void Reset(){
-            rid->PageNum = 1;
+            rid->PageNum = START_PAGE;
             rid->SlotNum = 0;
         }
         ~Scanner(){

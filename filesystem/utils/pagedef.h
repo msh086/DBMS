@@ -35,6 +35,10 @@
 #define DEBUG_ERASE 1
 #define DEBUG_NEXT 1
 /**
+ * 记录页的起始下标,在这之前都是位图页
+*/
+#define START_PAGE 15
+/**
  * 一个表中列的上限
  */
 #define MAX_COL_NUM 31
