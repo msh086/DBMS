@@ -9,3 +9,6 @@ bool Global::exitSign = false;
 std::vector<Type> Global::types;
 bool Global::errorSign = false;
 bool (*Global::action)(std::vector<Type>& type) = nullptr;
+std::vector<BplusTree*> Global::trees;
+std::vector<Scanner*> Global::scanners;
+BplusTree* Global::globalTree = nullptr;

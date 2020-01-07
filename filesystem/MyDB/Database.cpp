@@ -3,7 +3,6 @@
 BufPageManager* Database::bpm = BufPageManager::Instance();
 FileManager* Database::fm = FileManager::Instance();
 std::vector<Table*> Database::activeTables;
-std::vector<BplusTree*> Database::trees;
 
 // table ops
 int Table::CreateIndexOn(std::vector<uchar> cols, const char* idxName){

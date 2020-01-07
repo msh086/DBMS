@@ -173,12 +173,15 @@ class DataType{
                         return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) >= 0;
                     else{
                         uchar buf[length] = {0};
+                        if(leftConstant && rightConstant){
+                            return strncmp((char*)datal, (char*)datar, length) >= 0;
+                        }
                         if(leftConstant){
                             ushort len;
                             LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
                             return strncmp((char*)datal, (char*)buf, length) >= 0;
                         }
-                        else{ // ? We assume that there can be no more than 1 constant in left and right
+                        else{
                             ushort len;
                             LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
                             return strncmp((char*)buf, (char*)datar, length) >= 0;
@@ -220,12 +223,15 @@ class DataType{
                         return cmpLongVarchar(*(uint*)datal, *(uint*)(datal + 4), *(uint*)datar, *(uint*)(datar + 4)) == 0;
                         else{
                             uchar buf[length] = {0};
+                            if(leftConstant && rightConstant){
+                                return strncmp((char*)left, (char*)right, length) == 0;
+                            }
                             if(leftConstant){
                                 ushort len;
                                 LoadLongVarchar(*(uint*)datar, *(uint*)(datar + 4), buf, len);
                                 return strncmp((char*)datal, (char*)buf, length) == 0;
                             }
-                            else{ // ? We assume that there can be no more than 1 constant in left and right
+                            else{
                                 ushort len;
                                 LoadLongVarchar(*(uint*)datal, *(uint*)(datal + 4), buf, len);
                                 return strncmp((char*)buf, (char*)datar, length) == 0;

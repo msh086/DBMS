@@ -35,7 +35,7 @@ int main(){
         if(ok && !Global::exitSign && Global::errors.empty()){
             Global::action(Global::types);
             Global::dbms->CurrentDatabase()->CloseTables();
-            Global::dbms->CurrentDatabase()->ClearTrees();
+            Global::freeMemory();
         }
         if(!Global::errors.empty()){ // syntax ok, content error
             ok = false;

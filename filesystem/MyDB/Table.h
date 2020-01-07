@@ -629,6 +629,10 @@ class Table{
             return colCount;
         }
 
+        int IdxNum(){
+            return idxCount;
+        }
+
         int FKMasterNum(){
             return fkMasterCount;
         }

@@ -185,32 +185,6 @@ struct ParsingHelper{
 				}
 			}
 			ParsingHelper::extractFields(table->GetHeader(), table->ColNum(), selection, vals, constantValue, true, false);
-
-			// int constantPos = 4;
-			// for(int j = 0; j < table->ColNum(); j++){ // j is the index for field
-			// 	uchar leftColType = table->GetHeader()->attrType[j];
-			// 	uchar leftColLength = table->GetHeader()->attrLenth[j];
-			// 	int constantLength = DataType::constantLengthOf(leftColType, leftColLength);
-			// 	if(whereHelpersCol[j].size() > i){
-			// 		SelectHelper &tmp = whereHelpersCol[j][i];
-			// 		if(!tmp.hasRightCol){ // col = value
-			// 			if(tmp.val.type == DataType::NONE){
-			// 				setBitFromLeft(*(uint*)constantValue, j);
-			// 			}
-			// 			else if(leftColType == DataType::CHAR || leftColType == DataType::VARCHAR){
-			// 				memcpy(constantValue + constantPos, tmp.val.str.data(), tmp.val.str.length());
-			// 				memset(constantValue + constantPos + tmp.val.str.length(), 0, leftColLength - tmp.val.str.length());
-			// 			}
-			// 			else{
-			// 				memcpy(constantValue + constantPos, tmp.val.bytes, constantLength);
-			// 			}
-			// 			cmps[j] = tmp.cmp;
-			// 		}
-			// 		else
-			// 			assert(false);
-			// 	}
-			// 	constantPos += constantLength;
-			// }
 			scanner->AddDemand(constantValue, table->ColNum(), cmps);
 		}
 		for(auto where_it = helpers.begin(); where_it != helpers.end(); where_it++)
@@ -236,198 +210,66 @@ struct ParsingHelper{
 			int fieldLength = isConstant ? DataType::constantLengthOf(colType, colLength) : DataType::lengthOf(colType, colLength);
 			if(selection[i]){
 				if(!getBitFromLeft(*(uint*)dst, i)) // 非null时才赋值常量值
-					memcpy(dst + bufPos, valList[i], fieldLength);
+					if(isConstant && (colType == DataType::VARCHAR || colType == DataType::CHAR)){ // 如果是常量字符串,需要在后面补上'\0'
+						int len = strnlen((const char*)valList[i], colLength);
+						memcpy(dst + bufPos, valList[i], len);
+						memset(dst + bufPos + len, 0, fieldLength - len);
+					}
+					else
+						memcpy(dst + bufPos, valList[i], fieldLength);
 				bufPos += fieldLength;
 			}
 			else if(!compact) // 在compact模式下,未被选中的字段不占用空间
 				bufPos += fieldLength;
 		}
 	}
-};
 
-struct Debugger{
-	static bool debug(std::vector<Type> &typeVec){
-		Type &TT = typeVec[0], &T1 = typeVec[1], &T3 = typeVec[2], &T5 = typeVec[3];
-		if(Global::dbms->CurrentDatabase() == nullptr){
-			Global::NoActiveDb(T1.pos);
-			return false;
-		}
-		if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
-			Global::TableNameTooLong(T3.pos);
-			return false;
-		}
-		Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
-		if(!table){
-			Global::NoSuchTable(T3.pos, T3.val.str.data());
-			return false;
-		}
-		Record tmpRec;
-		RID tmpRID(START_PAGE, 0);
-		table->GetRecord(tmpRID, &tmpRec); // the default record
-		const Header* header = table->GetHeader();
-		for(auto list_it = T5.valLists.begin(); list_it != T5.valLists.end(); list_it++){
-			int arg_pos = 0;
-			for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){
-				if(arg_pos == MAX_COL_NUM || header->attrType[arg_pos] == DataType::NONE){
-					Global::FieldNumNotMatch(T5.pos, table->ColNum(), list_it->size());
-					// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data()); // remember to close table before exit
-					return false;
-				}
-				if(!ParsingHelper::ConvertValue(TT.val, header->attrType[arg_pos], header->attrLenth[arg_pos], *arg_it, getBitFromLeft(header->nullMask, arg_pos))){
-					Global::IncompatibleTypes(T5.pos, header->attrName[arg_pos]);
-					// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
-					return false;
-				}
-				if(arg_it->type == DataType::NONE) // null value
-					TT.val.type = DataType::NONE;
-				else
-					TT.val.type = header->attrType[arg_pos];
-				arg_pos++;
-				TT.valList.push_back(TT.val);
-			}
-			while(arg_pos < MAX_COL_NUM && header->attrType[arg_pos] != DataType::NONE){
-				if(!getBitFromLeft(header->defaultKeyMask, arg_pos)){
-					Global::NoDefaultValue(T5.pos, table->GetHeader()->attrName[arg_pos]);
-					// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
-					return false;
-				}
-				else{
-					if(getBitFromLeft(*tmpRec.GetData(), arg_pos)){ // default value is null
-						TT.val.type = DataType::NONE;
-					}
-					else{
-						memcpy(TT.val.bytes, tmpRec.GetData() + table->ColOffset(arg_pos), DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
-						// NOTE: if default value is long varchar -> insert a COPY of the long varchar
-					}
-					TT.valList.push_back(TT.val);
-				}
-			}
-			TT.valLists.push_back(TT.valList);
-			TT.valList.clear();
-		}
-		// check primary key constraint and store generated index records for later insertion
-		std::vector<std::string> idxRecords;
-		int idxRecLength = 4;
-		bool primarySelection[MAX_COL_NUM] = {0};
-		int primaryColCount = 0;
+	/**
+	 * 给出一个表和它的一个索引的header,从一条完整记录中抽取索引需要的字段
+	 * 
+	*/
+	static void getIndexFromRecord(const IndexHeader* idxHeader, Table* table, const uchar* record, uchar* dst){
+		bool selection[MAX_COL_NUM] = {0};
+		const uchar* vals[MAX_COL_NUM] = {0};
 		for(int i = 0; i < MAX_COL_NUM; i++){
-			uchar col_id = table->GetHeader()->primaryKeyID[i];
-			if(col_id != COL_ID_NONE){
-				primaryColCount++;
-				primarySelection[col_id] = true;
-				idxRecLength += DataType::constantLengthOf(table->GetHeader()->attrType[col_id], table->GetHeader()->attrLenth[col_id]);
-			}
-			else
+			uchar targetCol = idxHeader->indexColID[i];
+			if(targetCol == COL_ID_NONE)
 				break;
+			selection[targetCol] = true;
+			vals[targetCol] = record + table->ColOffset(targetCol);
 		}
-		// chekc primary key constraint
-		uchar buf[idxRecLength];
-		BplusTree* primaryIdx = nullptr;
-		if(primaryColCount){
-			uint idxPage = table->GetPrimaryIndexPage();
-			assert(idxPage);
-			primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
-			Global::dbms->CurrentDatabase()->TakeCareOfTree(primaryIdx);
-			const uchar* vals[primaryColCount] = {0};
-			for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
-				memset(vals, 0, sizeof(vals));
-				memset(buf, 0, sizeof(buf));
-				for(int i = 0; i < primaryColCount; i++){
-					uchar colID = primaryIdx->header->indexColID[i];
-					uchar colType = table->GetHeader()->attrType[colID];
-					if((*list_it)[colID].type == DataType::NONE)
-						setBitFromLeft(*(uint*)buf, colID);
-					else if(colType == DataType::CHAR || colType == DataType::VARCHAR)
-						vals[colID] = (const uchar*)(*list_it)[colID].str.data();
-					else
-						vals[colID] = (*list_it)[colID].bytes;
+		extractFields(table->GetHeader(), table->ColNum(), selection, vals, dst, false, true);
+	}
+
+	static void UpdateIndexes(Table* table, const uchar* oldRec, const Record& newRec, uint updateMask){
+		uchar tmpBuf[table->GetHeader()->recordLenth] = {0};
+		for(int i = 0; i < table->IdxNum(); i++){
+			bool hasChange = false;
+			for(int j = 0; j < MAX_COL_NUM; j++){
+				uchar col = table->GetHeader()->indexID[i][j];
+				if(col == COL_ID_NONE)
+					break;
+				if(getBitFromLeft(updateMask, col)){
+					hasChange = true;
+					break;
 				}
-				ParsingHelper::extractFields(table->GetHeader(), primaryColCount, primarySelection, vals, buf, true, true);
-				RID tmpRID;
-				if(primaryIdx->SafeValueSearch(buf, &tmpRID)){
-					Global::PrimaryKeyConflict(T5.pos);
-					return false;
-				}
-				idxRecords.push_back(std::string((char*)buf, sizeof(buf)));
 			}
-		}
-		// check foreign key constraints
-		int masterCount = table->FKMasterNum();
-		if(masterCount){
-			// for every fk master
-			for(int i = 0; i < masterCount; i++){
-				uchar masterName[MAX_TABLE_NAME_LEN + 1] = {0};
-				Global::dbms->CurrentDatabase()->GetTableName(table->GetHeader()->fkMaster[i], masterName);
-				Table* master = Global::dbms->CurrentDatabase()->OpenTable((char*)masterName);
-				uint idxPage = master->GetPrimaryIndexPage();
-				assert(idxPage);
-				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
-				// variables used to build constant record
-				const uchar* vals[table->ColNum()] = {0};
-				bool selection[table->ColNum()] = {0};
-				int colCount = tree->colNum;
-				int constantLength = 4;
-				for(int i = 0;i < colCount; i++){
-					constantLength += DataType::constantLengthOf(tree->header->attrType[i], tree->header->attrLenth[i]);
-					selection[tree->header->indexColID[i]] = true;
-				}
-				uchar constantRecord[constantLength] = {0};
-				// for every record to be inserted, check its primary constaint in master
-				for(auto record_it = TT.valLists.begin(); record_it != TT.valLists.end(); record_it++){
-					memset(vals, 0, sizeof(vals));
-					memset(constantRecord, 0, sizeof(constantRecord));
-					for(int i = 0; i < colCount; i++){ // No.i indexed field
-						uchar colID = tree->header->indexColID[i];
-						if((*record_it)[colID].type == DataType::NONE)
-							setBitFromLeft(*(uint*)constantRecord, i);
-						else if(tree->header->attrType[i] == DataType::CHAR || tree->header->attrType[i] == DataType::VARCHAR)
-							vals[colID] = (const uchar*)(*record_it)[colID].str.data();
-						else
-							vals[colID] = (*record_it)[colID].bytes;
-					}
-					ParsingHelper::extractFields(table->GetHeader(), colCount, selection, vals, constantRecord, true, true);
-					if(!tree->SafeValueSearch(constantRecord, &tmpRID)){
-						Global::ForeignKeyNotFound(T5.pos, masterName);
-						delete tree;
-						return false;
-					}
-				}
+			if(hasChange){
+				memset(tmpBuf, 0, sizeof(tmpBuf));
+				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetPrimaryIndexPage());
+				getIndexFromRecord(tree->header, table, oldRec, tmpBuf);
+				tree->SafeRemove(tmpBuf, *newRec.GetRid());
+				memset(tmpBuf, 0, sizeof(tmpBuf));
+				getIndexFromRecord(tree->header, table, newRec.GetData(), tmpBuf);
+				tree->SafeInsert(tmpBuf, *newRec.GetRid());
 				delete tree;
 			}
 		}
-		// now there is no error in input, start insertion
-		int idxRecPos = 0;
-		for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every valList, build a record
-			int arg_pos = 0;
-			memset(tmpRec.GetData(), 0, 4); // set null word to 0
-			for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){ // for every field, perpare its value
-				if(arg_it->type == DataType::NONE) // null value
-					setBitFromLeft(*(uint*)(tmpRec.GetData()), arg_pos);
-				else if(header->attrType[arg_pos] == DataType::VARCHAR && header->attrLenth[arg_pos] > 255){ // long varchar
-					uchar varcharBuf[header->attrLenth[arg_pos]] = {0};
-					ushort len = 0;
-					RID dftRID = RID(*(uint*)arg_it->bytes, *(uint*)(arg_it->bytes + 4));
-					Global::dbms->CurrentDatabase()->GetLongVarchar(dftRID, varcharBuf, len);
-					Global::dbms->CurrentDatabase()->InsertLongVarchar((const char*)varcharBuf, len, &dftRID);
-					*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos)) = dftRID.GetPageNum();
-					*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos) + 4) = dftRID.GetSlotNum();
-				}
-				else if(header->attrType[arg_pos] == DataType::VARCHAR || header->attrType[arg_pos] == DataType::CHAR){
-					memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->str.data(), arg_it->str.length());
-					memset(tmpRec.GetData() + table->ColOffset(arg_pos) + arg_it->str.length(), 0, table->GetHeader()->attrLenth[arg_pos] - arg_it->str.length());
-				}
-				else
-					memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->bytes, DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
-				arg_pos++;
-			}
-			table->InsertRecord(tmpRec.GetData(), &tmpRID);
-			// TODO: update other indexes beside primary index
-			if(primaryIdx){
-				primaryIdx->SafeInsert((const uchar*)idxRecords[idxRecPos++].data(), tmpRID);
-			}
-		}
-		return true;
 	}
+};
+
+struct Debugger{
+	static bool debug(std::vector<Type> &typeVec){}
 };
 
 #define YYSTYPE Type//把YYSTYPE(即yylval变量)重定义为struct Type类型，这样lex就能向yacc返回更多的数据了

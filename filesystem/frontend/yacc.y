@@ -278,7 +278,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						int fkIndex = 0;
 						// indexes of primary fields, used in creating primary index
 						std::vector<uchar> primaryCols;
-						for(auto it = T5.constraintList.begin(); it != T5.constraintList.end(); it++){
+						for(auto it = T5.constraintList.begin(); it != T5.constraintList.end(); it++){ // 对于每个主键或者外键约束
 							// multiple primary keys
 							if(hasPrimary && !it->isFK){
 								Global::MultiplePrimaryKey(T5.pos);
@@ -311,6 +311,10 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									Global::TooManySlaveTime(T5.pos);
 									return false;
 								}
+								if(it->IDList.size() != it->masterIDList.size()){
+									Global::MasterFieldNumNotMatch(T5.pos);
+									return false;
+								}
 								// check slaveCol names
 								int slavePos = 0;
 								for(auto slave_it = it->IDList.begin(); slave_it != it->IDList.end(); slave_it++){
@@ -338,10 +342,16 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 										Global::NoSuchField(T5.pos, master_it->data());
 										return false;
 									}
-									if(master->GetHeader()->primaryKeyID[primaryPos++] != masterColIndex){
+									if(master->GetHeader()->primaryKeyID[primaryPos] != masterColIndex){
 										Global::MasterFieldNotPrimary(T5.pos);
 										return false;
 									}
+									if(master->GetHeader()->attrType[masterColIndex] != header.attrType[header.slaveKeyID[fkIndex][primaryPos]] ||
+										master->GetHeader()->attrLenth[masterColIndex] != header.attrLenth[header.slaveKeyID[fkIndex][primaryPos]]){
+										Global::MasterTypeNotMatch(T5.pos);
+										return false;
+									}
+									primaryPos++;
 								}
 								if(primaryPos < MAX_COL_NUM && master->GetHeader()->primaryKeyID[primaryPos] != COL_ID_NONE){
 									Global::MasterFieldNotPrimary(T5.pos);
@@ -542,14 +552,15 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							else
 								break;
 						}
-						// chekc primary key constraint
+						// check primary key constraint
+						// TODO: 检查插入多个元素时,元素之间不满足主键约束的情况
 						uchar buf[idxRecLength];
 						BplusTree* primaryIdx = nullptr;
 						if(primaryColCount){
 							uint idxPage = table->GetPrimaryIndexPage();
 							assert(idxPage);
 							primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
-							Global::dbms->CurrentDatabase()->TakeCareOfTree(primaryIdx);
+							Global::trees.push_back(primaryIdx);
 							const uchar* vals[primaryColCount] = {0};
 							for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
 								memset(vals, 0, sizeof(vals));
@@ -650,7 +661,6 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						return true;
 					};
-					Global::action = Debugger::debug;
 				}
 			|	DELETE FROM IDENTIFIER WHERE whereClause
 				{
@@ -687,6 +697,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						Record tmpRec;
 						while(scanner->NextRecord(&tmpRec)){
 							table->DeleteRecord(*tmpRec.GetRid());
+							tmpRec.FreeMemory();
 							// update index
 						}
 						delete scanner;
@@ -744,12 +755,169 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						int cmpUnitsNeeded = 0;
 						if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T2.val.str, T6, table))
 							return false;
-						// TODO: use index where possible
+						// TODO: check primary key: 只要update的字段和主键字段交集为空即可.反之,设剩余主键集合为R,如果符合要求的记录中,R集合有重复元素,则报错.这是由于update都是常量
+						// 需要知道的: 被update的主键,没被update的主键
+						uint primaryMask = 0;
+						int primaryIdxLength = 4; // 常量长度!
+						for(int i = 0; i < MAX_COL_NUM; i++){
+							uchar tmpCol = table->GetHeader()->primaryKeyID[i];
+							if(tmpCol == COL_ID_NONE)
+								break;
+							else{
+								setBitFromLeft(primaryMask, tmpCol);
+								primaryIdxLength += DataType::constantLengthOf(table->GetHeader()->attrType[tmpCol], table->GetHeader()->attrLenth[tmpCol]);
+							}
+						}
+						uint updateMask = 0;
+						SetHelper* helperByIndex[MAX_COL_NUM] = {0};
+						for(auto set_it = setHelpers.begin(); set_it != setHelpers.end(); set_it++){
+							if(helperByIndex[set_it->colID]){ // 多次set一个字段是不被允许的
+								Global::MultipleSetForField(T4.pos);
+								return false;
+							}
+							helperByIndex[set_it->colID] = &(*set_it);
+							setBitFromLeft(updateMask, set_it->colID);
+						}
+
 						// build scanner
 						Scanner* scanner = ParsingHelper::buildScanner(table, helpers, whereHelpersCol, cmpUnitsNeeded);
-						// update
+						Global::scanners.push_back(scanner);
+						// check primary constraint
 						Record tmpRec;
+						if(primaryMask){
+							BplusTree* primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetPrimaryIndexPage());
+							Global::globalTree = primaryIdx;
+							std::set<const uchar*, bool(*)(const uchar*, const uchar*)> primaryCheck([](const uchar* left, const uchar* right)->bool{
+								return DataType::compareArr(left, right, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
+									Global::globalTree->colNum, Comparator::Lt, true, true);
+							});
+							bool hasError = false;
+							while(true){
+								if(scanner->NextRecord(&tmpRec)){
+									uchar* idxBuf = new uchar[primaryIdxLength]{0};
+									int pos = 4;
+									for(int i = 0; i < primaryIdx->colNum; i++){ // 对于每个主键
+										uchar mainColID = primaryIdx->header->indexColID[i];
+										int fieldLength = DataType::constantLengthOf(primaryIdx->header->attrType[i], primaryIdx->header->attrLenth[i]);
+										if(getBitFromLeft(updateMask, mainColID)){ // 该主键被update修改,从SetHelper中获取值
+											if(helperByIndex[mainColID]->value.type == DataType::NONE){
+												Global::NullPrimaryKey(T4.pos);
+												delete[] idxBuf;
+												delete primaryIdx;
+												tmpRec.FreeMemory();
+												return false;
+											}
+											else if(helperByIndex[mainColID]->value.type == DataType::CHAR || helperByIndex[mainColID]->value.type == DataType::VARCHAR){
+												memcpy(idxBuf + pos, helperByIndex[mainColID]->value.str.data(), helperByIndex[mainColID]->value.str.length());
+											}
+											else
+												memcpy(idxBuf + pos, helperByIndex[mainColID]->value.bytes, fieldLength);
+										}
+										else{ // 主键未被修改,从tmpRec中获取值
+											// 主键不能是null,不用考虑这种情况
+											if(primaryIdx->header->attrType[i] == DataType::VARCHAR && primaryIdx->header->attrLenth[i] > 255){
+												uchar* ridAddr = tmpRec.GetData() + table->ColOffset(mainColID);
+												RID tmpRID(*(uint*)ridAddr, *(uint*)(ridAddr + 4));
+												ushort len = 0;
+												Global::dbms->CurrentDatabase()->GetLongVarchar(tmpRID, idxBuf + pos, len);
+											}
+											else
+												memcpy(idxBuf + pos, tmpRec.GetData() + table->ColOffset(mainColID), fieldLength);
+										}
+										pos += fieldLength;
+									}
+									tmpRec.FreeMemory();
+									if(!primaryCheck.insert(idxBuf).second){
+										hasError = true;
+										delete[] idxBuf;
+										break;
+									}
+								}
+								else
+									break;
+							}
+							delete primaryIdx;
+							for(auto check_it = primaryCheck.begin(); check_it != primaryCheck.end(); check_it++)
+								delete[] *check_it;
+							if(hasError){
+								Global::PrimaryKeyConflict(T4.pos);
+								return false;
+							}
+						}
+						scanner->Reset();
+						// check foreign masters: 只需检查update后的外键是否在master的主键中即可
+						for(int i = 0; i < table->FKMasterNum(); i++){ // 对每个master
+							uchar masterName[MAX_TABLE_NAME_LEN + 1] = {0};
+							Global::dbms->CurrentDatabase()->GetTableName(table->GetHeader()->fkMaster[i], masterName);
+							Table* master = Global::dbms->CurrentDatabase()->OpenTable((char*)masterName);
+							assert(master != nullptr);
+							bool needCheck = false;
+							for(int j = 0; j < MAX_COL_NUM; j++){
+								uchar localCol = table->GetHeader()->slaveKeyID[i][j];
+								if(localCol == COL_ID_NONE)
+									break;
+								if(getBitFromLeft(updateMask, localCol)){
+									needCheck = true;
+									break;
+								}
+							}
+							if(needCheck){
+								int masterConstPriIdxLenth = 4;
+								for(int j = 0; j < MAX_COL_NUM; j++){
+									uchar masterCol = master->GetHeader()->primaryKeyID[j];
+									if(masterCol == COL_ID_NONE)
+										break;
+									masterConstPriIdxLenth += DataType::constantLengthOf(master->GetHeader()->attrType[masterCol], master->GetHeader()->attrLenth[masterCol]);
+								}
+								uchar idxBuf[masterConstPriIdxLenth] = {0};
+								while(scanner->NextRecord(&tmpRec)){
+									memset(idxBuf, 0, sizeof(idxBuf));
+									int bufPos = 4;
+									for(int j = 0; j < MAX_COL_NUM; j++){ // 对于每个slave key
+										uchar localCol = table->GetHeader()->slaveKeyID[i][j];
+										if(localCol == COL_ID_NONE)
+											break;
+										int constantLength = DataType::constantLengthOf(table->GetHeader()->attrType[localCol], table->GetHeader()->attrLenth[localCol]);
+										if(getBitFromLeft(updateMask, localCol)){ // 这个字段被update更新
+											if(helperByIndex[localCol]->value.type == DataType::NONE){
+												Global::ForeignKeyNotFound(T4.pos, masterName);
+												tmpRec.FreeMemory();
+												return false;
+											}
+											else if(table->GetHeader()->attrType[localCol] == DataType::VARCHAR || table->GetHeader()->attrType[localCol] == DataType::CHAR){
+												memcpy(idxBuf + bufPos, helperByIndex[localCol]->value.str.data(), helperByIndex[localCol]->value.str.length());
+											}
+											else
+												memcpy(idxBuf + bufPos, helperByIndex[localCol]->value.bytes, constantLength);
+										}
+										else{ // 字段未被update更新,使用从表中读出的值
+											if(table->GetHeader()->attrType[localCol] == DataType::VARCHAR && table->GetHeader()->attrLenth[localCol] > 255){
+												uchar* ridAddr = tmpRec.GetData() + table->ColOffset(localCol);
+												RID tmpRID(*(uint*)ridAddr, *(uint*)(ridAddr + 4));
+												ushort len = 0;
+												Global::dbms->CurrentDatabase()->GetLongVarchar(tmpRID, idxBuf + bufPos, len);
+											}
+										}
+										bufPos += constantLength;
+									}
+									tmpRec.FreeMemory();
+									BplusTree* masterIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, master->GetPrimaryIndexPage());
+									RID tmpRID;
+									if(!masterIdx->SafeValueSearch(idxBuf, &tmpRID)){
+										delete masterIdx;
+										Global::ForeignKeyNotFound(T4.pos, masterName);
+										return false;
+									}
+									delete masterIdx;
+								}
+							}
+							Global::dbms->CurrentDatabase()->CloseTable((char*)masterName);
+						}
+						scanner->Reset();
+						// update
 						while(scanner->NextRecord(&tmpRec)){
+							uchar tmpBuf[table->GetHeader()->recordLenth] = {0};
+							memcpy(tmpBuf, tmpRec.GetData(), sizeof(tmpBuf));
 							for(auto set_it = setHelpers.begin(); set_it != setHelpers.end(); set_it++){
 								uchar setColType = table->GetHeader()->attrType[set_it->colID];
 								if(set_it->value.type == DataType::NONE){ // use val type
@@ -768,17 +936,23 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 											*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID)) = tmpRID.GetPageNum();
 											*(uint*)(tmpRec.GetData() + table->ColOffset(set_it->colID + 4)) = tmpRID.GetSlotNum();
 										}
+										else{
+											memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.str.data(), set_it->value.str.length());
+											memset(tmpRec.GetData() + table->ColOffset(set_it->colID) + set_it->value.str.length(), 0,
+												table->GetHeader()->attrLenth[set_it->colID] - set_it->value.str.length());
+										}
 									}
 									else{
 										memcpy(tmpRec.GetData() + table->ColOffset(set_it->colID), set_it->value.bytes, 
 											DataType::lengthOf(table->GetHeader()->attrType[set_it->colID], table->GetHeader()->attrType[set_it->colID]));
 									}
 								}
-								table->UpdateRecord(*tmpRec.GetRid(), tmpRec.GetData(), 0, 0, table->GetHeader()->recordLenth);
-								tmpRec.FreeMemory();
 							}
+							table->UpdateRecord(*tmpRec.GetRid(), tmpRec.GetData(), 0, 0, table->GetHeader()->recordLenth);
+							// 更新所有索引,包括主键索引
+							ParsingHelper::UpdateIndexes(table, tmpBuf, tmpRec, updateMask);
+							tmpRec.FreeMemory();
 						}
-						delete scanner;
 						return true;
 					};
 				}

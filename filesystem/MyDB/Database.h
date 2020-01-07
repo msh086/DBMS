@@ -18,8 +18,6 @@ class Database{
 
     static std::vector<Table*> activeTables;
 
-    static std::vector<BplusTree*> trees;
-
     // Private helper methods added by msh
     int getActiveTableIndex(const char* tablename){
         int ans = 0;
@@ -323,7 +321,7 @@ class Database{
          * 通过表ID获取表名
         */
         void GetTableName(uchar tableID, uchar* dst){
-            RID tmpRID(1, tableID + 1);
+            RID tmpRID(START_PAGE, tableID + 1);
             info->GetRecord(tmpRID, rec);
             memcpy(dst, rec->GetData() + 4, MAX_TABLE_NAME_LEN); // skip null word
             rec->FreeMemory();
@@ -448,16 +446,6 @@ class Database{
         Scanner* ShowTables(){
             infoScanner->SetDemand([](const Record& record)->bool{return true;});
             return infoScanner;
-        }
-
-        void TakeCareOfTree(BplusTree* tree){
-            trees.push_back(tree);
-        }
-
-        void ClearTrees(){
-            for(auto tree_it = trees.begin(); tree_it != trees.end(); tree_it++)
-                delete *tree_it;
-            trees.clear();
         }
 
         /**

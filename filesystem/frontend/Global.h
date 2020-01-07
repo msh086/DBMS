@@ -36,6 +36,19 @@ class Global{
 		static std::vector<Type> types;
 		static bool errorSign;
 		static bool (*action)(std::vector<Type>& types);
+		static std::vector<BplusTree*> trees; // trees和scanners都是用来管理内存的
+		static std::vector<Scanner*> scanners;
+		static BplusTree* globalTree; // update中,判断update后是否存在主键冲突,需要用到set,比较函数若为Lambda,则不能捕获任何变量
+
+		static void freeMemory(){
+			for(auto it = trees.begin(); it != trees.end(); it++)
+				delete *it;
+			trees.clear();
+			for(auto it = scanners.begin(); it != scanners.end(); it++)
+				delete *it;
+			scanners.clear();
+		}
+
 		static void newError(int pos, const char* str){
 			errors.push_back(Error(pos, std::string(str)));
 		}
@@ -46,7 +59,6 @@ class Global{
 			va_end(ap);
 			return formatBuffer;
 		}
-
 		// 预置的错误类型
 		// database level
 		static void NoActiveDb(int pos){
@@ -121,6 +133,15 @@ class Global{
 		static void PrimaryKeyConflict(int pos){
 			newError(pos, "Primary key conflict");
 		}
+		static void NullPrimaryKey(int pos){
+			newError(pos, "Primary key cannot be null");
+		}
+		static void MasterTypeNotMatch(int pos){
+			newError(pos, "Fields in slave table should have identical types as primary keys in master table");
+		}
+		static void MasterFieldNumNotMatch(int pos){
+			newError(pos, "Slave field num not equal to master primary field num");
+		}
 
 		// type
 		static void IllegalCharLength(int pos){
@@ -162,6 +183,9 @@ class Global{
 		}
 		static void FileNotFound(int pos, const char* name){
 			newError(pos, format("File named %s not found", name));
+		}
+		static void MultipleSetForField(int pos){
+			newError(pos, "Cannot assign a field twice");
 		}
 };
 
