@@ -90,6 +90,10 @@
 */
 #define MAX_INDEX_NUM 16
 /**
+ * Indicates an invalid index id
+*/
+#define INDEX_ID_NONE 16
+/**
  * Max string length for a index
 */
 #define MAX_INDEX_NAME_LEN 16

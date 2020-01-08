@@ -241,6 +241,17 @@ struct ParsingHelper{
 		extractFields(table->GetHeader(), table->ColNum(), selection, vals, dst, false, true);
 	}
 
+	static void InsertIndexes(Table* table, const Record& rec){
+		uchar tmpBuf[table->GetHeader()->recordLenth] = {0};
+		for(int i = 0; i < table->IdxNum(); i++){
+			memset(tmpBuf, 0, sizeof(tmpBuf));
+			BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[i]);
+			getIndexFromRecord(tree->header, table, rec.GetData(), tmpBuf);
+			tree->SafeInsert(tmpBuf, *rec.GetRid());
+			delete tree;
+		}
+	}
+
 	static void UpdateIndexes(Table* table, const uchar* oldRec, const Record& newRec, uint updateMask){
 		uchar tmpBuf[table->GetHeader()->recordLenth] = {0};
 		for(int i = 0; i < table->IdxNum(); i++){
@@ -256,7 +267,7 @@ struct ParsingHelper{
 			}
 			if(hasChange){
 				memset(tmpBuf, 0, sizeof(tmpBuf));
-				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetPrimaryIndexPage());
+				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[i]);
 				getIndexFromRecord(tree->header, table, oldRec, tmpBuf);
 				tree->SafeRemove(tmpBuf, *newRec.GetRid());
 				memset(tmpBuf, 0, sizeof(tmpBuf));
@@ -265,6 +276,15 @@ struct ParsingHelper{
 				delete tree;
 			}
 		}
+	}
+
+	static bool IndexNameReserved(const char* name){
+		return identical(name, PRIMARY_RESERVED_IDX_NAME, MAX_INDEX_NAME_LEN);
+	}
+
+	static bool TableNameReserved(const char* name){
+		return identical(name, DB_RESERVED_TABLE_NAME, MAX_TABLE_NAME_LEN) || identical(name, IDX_RESERVED_TABLE_NAME, MAX_TABLE_NAME_LEN)
+			|| identical(name, VARCHAR_RESERVED_TABLE_NAME, MAX_TABLE_NAME_LEN);
 	}
 };
 

@@ -537,8 +537,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							TT.valLists.push_back(TT.valList);
 							TT.valList.clear();
 						}
-						// check primary key constraint and store generated index records for later insertion
-						std::vector<std::string> idxRecords;
+						// calc primary key const length
 						int idxRecLength = 4;
 						bool primarySelection[MAX_COL_NUM] = {0};
 						int primaryColCount = 0;
@@ -554,17 +553,21 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						// check primary key constraint
 						// TODO: 检查插入多个元素时,元素之间不满足主键约束的情况
-						uchar buf[idxRecLength];
 						BplusTree* primaryIdx = nullptr;
 						if(primaryColCount){
 							uint idxPage = table->GetPrimaryIndexPage();
 							assert(idxPage);
 							primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
-							Global::trees.push_back(primaryIdx);
+							Global::globalTree = primaryIdx;
+							std::set<const uchar*, bool(*)(const uchar*, const uchar*)> primaryCheck([](const uchar* l, const uchar* r)->bool{
+								return DataType::compareArr(l, r, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
+									Global::globalTree->colNum, Comparator::Lt, true, true);
+							});
 							const uchar* vals[primaryColCount] = {0};
+							bool ok = true;
 							for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
+								uchar* buf = new uchar[idxRecLength]{0};
 								memset(vals, 0, sizeof(vals));
-								memset(buf, 0, sizeof(buf));
 								for(int i = 0; i < primaryColCount; i++){
 									uchar colID = primaryIdx->header->indexColID[i];
 									uchar colType = table->GetHeader()->attrType[colID];
@@ -576,13 +579,24 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 										vals[colID] = (*list_it)[colID].bytes;
 								}
 								ParsingHelper::extractFields(table->GetHeader(), primaryColCount, primarySelection, vals, buf, true, true);
+								if(!primaryCheck.insert(buf).second){
+									Global::PrimaryKeyConflict(T5.pos);
+									ok = false;
+									delete[] buf;
+									break;
+								}
 								RID tmpRID;
 								if(primaryIdx->SafeValueSearch(buf, &tmpRID)){
 									Global::PrimaryKeyConflict(T5.pos);
-									return false;
+									ok = false;
+									break;
 								}
-								idxRecords.push_back(std::string((char*)buf, sizeof(buf)));
 							}
+							for(auto check_it = primaryCheck.begin(); check_it != primaryCheck.end(); check_it++)
+								delete *check_it;
+							delete primaryIdx;
+							if(!ok)
+								return false;
 						}
 						// check foreign key constraints
 						int masterCount = table->FKMasterNum();
@@ -654,10 +668,8 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								arg_pos++;
 							}
 							table->InsertRecord(tmpRec.GetData(), &tmpRID);
-							// TODO: update other indexes beside primary index
-							if(primaryIdx){
-								primaryIdx->SafeInsert((const uchar*)idxRecords[idxRecPos++].data(), tmpRID);
-							}
+							// update indexes
+							ParsingHelper::InsertIndexes(table, tmpRec);
 						}
 						return true;
 					};
@@ -730,22 +742,18 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						for(auto set_it = T4.setList.begin(); set_it != T4.setList.end(); set_it++){
 							if(set_it->colName.length() > MAX_ATTRI_NAME_LEN){
 								Global::FieldNameTooLong(T4.pos);
-								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 								return false;
 							}
 							uchar setColID = table->IDofCol(set_it->colName.data());
 							if(setColID == COL_ID_NONE){
 								Global::NoSuchField(T4.pos, set_it->colName.data());
-								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 								return false;
 							}
 							SetHelper helper;
 							if(!ParsingHelper::ConvertValue(helper.value, table->GetHeader()->attrType[setColID], table->GetHeader()->attrLenth[setColID], set_it->value, getBitFromLeft(table->GetHeader()->nullMask, setColID))){
 								Global::IncompatibleTypes(T4.pos, table->GetHeader()->attrName[setColID]);
-								// Global::dbms->CurrentDatabase()->CloseTable(T2.val.str.data());
 								return false;
 							}
-							// TODO: check foreign constraints
 							helper.colID = setColID;
 							setHelpers.push_back(helper);
 						}
@@ -755,7 +763,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						int cmpUnitsNeeded = 0;
 						if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T2.val.str, T6, table))
 							return false;
-						// TODO: check primary key: 只要update的字段和主键字段交集为空即可.反之,设剩余主键集合为R,如果符合要求的记录中,R集合有重复元素,则报错.这是由于update都是常量
+						// check primary key: 只要update的字段和主键字段交集为空即可.反之,设剩余主键集合为R,如果符合要求的记录中,R集合有重复元素,则报错.这是由于update都是常量
 						// 需要知道的: 被update的主键,没被update的主键
 						uint primaryMask = 0;
 						int primaryIdxLength = 4; // 常量长度!
@@ -791,58 +799,54 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								return DataType::compareArr(left, right, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
 									Global::globalTree->colNum, Comparator::Lt, true, true);
 							});
-							bool hasError = false;
-							while(true){
-								if(scanner->NextRecord(&tmpRec)){
-									uchar* idxBuf = new uchar[primaryIdxLength]{0};
-									int pos = 4;
-									for(int i = 0; i < primaryIdx->colNum; i++){ // 对于每个主键
-										uchar mainColID = primaryIdx->header->indexColID[i];
-										int fieldLength = DataType::constantLengthOf(primaryIdx->header->attrType[i], primaryIdx->header->attrLenth[i]);
-										if(getBitFromLeft(updateMask, mainColID)){ // 该主键被update修改,从SetHelper中获取值
-											if(helperByIndex[mainColID]->value.type == DataType::NONE){
-												Global::NullPrimaryKey(T4.pos);
-												delete[] idxBuf;
-												delete primaryIdx;
-												tmpRec.FreeMemory();
-												return false;
-											}
-											else if(helperByIndex[mainColID]->value.type == DataType::CHAR || helperByIndex[mainColID]->value.type == DataType::VARCHAR){
-												memcpy(idxBuf + pos, helperByIndex[mainColID]->value.str.data(), helperByIndex[mainColID]->value.str.length());
-											}
-											else
-												memcpy(idxBuf + pos, helperByIndex[mainColID]->value.bytes, fieldLength);
+							bool ok = true;
+							while(scanner->NextRecord(&tmpRec)){
+								uchar* idxBuf = new uchar[primaryIdxLength]{0};
+								int pos = 4;
+								for(int i = 0; i < primaryIdx->colNum; i++){ // 对于每个主键
+									uchar mainColID = primaryIdx->header->indexColID[i];
+									int fieldLength = DataType::constantLengthOf(primaryIdx->header->attrType[i], primaryIdx->header->attrLenth[i]);
+									if(getBitFromLeft(updateMask, mainColID)){ // 该主键被update修改,从SetHelper中获取值
+										if(helperByIndex[mainColID]->value.type == DataType::NONE){
+											Global::NullPrimaryKey(T4.pos);
+											delete[] idxBuf;
+											ok = false;
+											break;
 										}
-										else{ // 主键未被修改,从tmpRec中获取值
-											// 主键不能是null,不用考虑这种情况
-											if(primaryIdx->header->attrType[i] == DataType::VARCHAR && primaryIdx->header->attrLenth[i] > 255){
-												uchar* ridAddr = tmpRec.GetData() + table->ColOffset(mainColID);
-												RID tmpRID(*(uint*)ridAddr, *(uint*)(ridAddr + 4));
-												ushort len = 0;
-												Global::dbms->CurrentDatabase()->GetLongVarchar(tmpRID, idxBuf + pos, len);
-											}
-											else
-												memcpy(idxBuf + pos, tmpRec.GetData() + table->ColOffset(mainColID), fieldLength);
+										else if(helperByIndex[mainColID]->value.type == DataType::CHAR || helperByIndex[mainColID]->value.type == DataType::VARCHAR){
+											memcpy(idxBuf + pos, helperByIndex[mainColID]->value.str.data(), helperByIndex[mainColID]->value.str.length());
 										}
-										pos += fieldLength;
+										else
+											memcpy(idxBuf + pos, helperByIndex[mainColID]->value.bytes, fieldLength);
 									}
-									tmpRec.FreeMemory();
-									if(!primaryCheck.insert(idxBuf).second){
-										hasError = true;
-										delete[] idxBuf;
-										break;
+									else{ // 主键未被修改,从tmpRec中获取值
+										// 主键不能是null,不用考虑这种情况
+										if(primaryIdx->header->attrType[i] == DataType::VARCHAR && primaryIdx->header->attrLenth[i] > 255){
+											uchar* ridAddr = tmpRec.GetData() + table->ColOffset(mainColID);
+											RID tmpRID(*(uint*)ridAddr, *(uint*)(ridAddr + 4));
+											ushort len = 0;
+											Global::dbms->CurrentDatabase()->GetLongVarchar(tmpRID, idxBuf + pos, len);
+										}
+										else
+											memcpy(idxBuf + pos, tmpRec.GetData() + table->ColOffset(mainColID), fieldLength);
 									}
+									pos += fieldLength;
 								}
-								else
+								tmpRec.FreeMemory();
+								if(!ok)
 									break;
+								if(!primaryCheck.insert(idxBuf).second){
+									Global::PrimaryKeyConflict(T4.pos);
+									delete[] idxBuf;
+									ok = false;
+									break;
+								}
 							}
 							delete primaryIdx;
 							for(auto check_it = primaryCheck.begin(); check_it != primaryCheck.end(); check_it++)
 								delete[] *check_it;
-							if(hasError){
-								Global::PrimaryKeyConflict(T4.pos);
+							if(!ok)
 								return false;
-							}
 						}
 						scanner->Reset();
 						// check foreign masters: 只需检查update后的外键是否在master的主键中即可
@@ -1085,51 +1089,243 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 IdxStmt		:	CREATE INDEX IDENTIFIER ON IDENTIFIER '(' IdList ')'
 				{
 					printf("YACC: create idx\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($5);
+					Global::types.push_back($7);
+					Global::action = [](std::vector<Type>& typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T5 = typeVec[2], &T7 = typeVec[3];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_INDEX_NAME_LEN){
+							Global::IndexNameTooLong(T3.pos);
+							return false;
+						}
+						if(ParsingHelper::IndexNameReserved(T3.val.str.data())){
+							Global::IndexNameReserved(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(T5.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T5.pos);
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T5.val.str.data());
+						if(table == nullptr){
+							Global::NoSuchTable(T5.pos, T5.val.str.data());
+							return false;
+						}
+						std::vector<uchar> idxCols;
+						for(auto it = T7.IDList.begin(); it != T7.IDList.end(); it++){
+							if(it->length() > MAX_ATTRI_NAME_LEN){
+								Global::FieldNameTooLong(T7.pos);
+								return false;
+							}
+							uchar colID = table->IDofCol(it->data());
+							if(colID == COL_ID_NONE){
+								Global::NoSuchField(T7.pos, it->data());
+								return false;
+							}
+							idxCols.push_back(colID);
+						}
+						int res = table->CreateIndexOn(idxCols, T3.val.str.data());
+						if(res == 2){
+							Global::TooManyIndexes(T1.pos);
+							return false;
+						}
+						else if(res == 1){
+							Global::IndexNameConflict(T3.pos, T3.val.str.data());
+							return false;
+						}
+						return true;
+					};
 				}
-			|	DROP INDEX IDENTIFIER
+			|	DROP INDEX IDENTIFIER ON IDENTIFIER
 				{
 					printf("YACC: drop idx\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($5);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T5 = typeVec[2];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_INDEX_NAME_LEN){
+							Global::IndexNameTooLong(T3.pos);
+							return false;
+						}
+						if(ParsingHelper::IndexNameReserved(T3.val.str.data())){
+							Global::IndexNameReserved(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(T5.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T5.pos);
+							return false;
+						}
+						if(ParsingHelper::TableNameReserved(T5.val.str.data())){
+							Global::TableNameReserved(T5.pos, T5.val.str.data());
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T5.val.str.data());
+						if(table == nullptr){
+							Global::NoSuchTable(T5.pos, T5.val.str.data());
+							return false;
+						}
+						if(!table->RemoveIndex(T3.val.str.data())){
+							Global::NoSuchIndex(T3.pos, T3.val.str.data());
+							return false;
+						}
+						return true;
+					};
 				}
 			|	ALTER TABLE IDENTIFIER ADD INDEX IDENTIFIER '(' IdList ')'
 				{
 					printf("YACC: alter add idx\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($6);
+					Global::types.push_back($8);
+					Global::action = [](std::vector<Type>& typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T6 = typeVec[2], &T8 = typeVec[3];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T6.val.str.length() > MAX_INDEX_NAME_LEN){
+							Global::IndexNameTooLong(T6.pos);
+							return false;
+						}
+						if(ParsingHelper::IndexNameReserved(T6.val.str.data())){
+							Global::IndexNameReserved(T6.pos, T6.val.str.data());
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						if(ParsingHelper::TableNameReserved(T3.val.str.data())){
+							Global::TableNameReserved(T3.pos, T3.val.str.data());
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(table == nullptr){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						std::vector<uchar> idxCols;
+						for(auto it = T8.IDList.begin(); it != T8.IDList.end(); it++){
+							if(it->length() > MAX_ATTRI_NAME_LEN){
+								Global::FieldNameTooLong(T8.pos);
+								return false;
+							}
+							uchar colID = table->IDofCol(it->data());
+							if(colID == COL_ID_NONE){
+								Global::NoSuchField(T8.pos, it->data());
+								return false;
+							}
+							idxCols.push_back(colID);
+						}
+						int res = table->CreateIndexOn(idxCols, T6.val.str.data());
+						if(res == 2){
+							Global::TooManyIndexes(T1.pos);
+							return false;
+						}
+						else if(res == 1){
+							Global::IndexNameConflict(T6.pos, T6.val.str.data());
+							return false;
+						}
+						return true;
+					};
 				}
 			|	ALTER TABLE IDENTIFIER DROP INDEX IDENTIFIER
 				{
 					printf("YACC: alter drop idx\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($6);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T6 = typeVec[2];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T6.val.str.length() > MAX_INDEX_NAME_LEN){
+							Global::IndexNameTooLong(T6.pos);
+							return false;
+						}
+						if(ParsingHelper::IndexNameReserved(T6.val.str.data())){
+							Global::IndexNameReserved(T6.pos, T6.val.str.data());
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						if(ParsingHelper::TableNameReserved(T3.val.str.data())){
+							Global::TableNameReserved(T3.pos ,T3.val.str.data());
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(table == nullptr){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(!table->RemoveIndex(T6.val.str.data())){
+							Global::NoSuchIndex(T6.pos, T6.val.str.data());
+							return false;
+						}
+						return true;
+					};
 				}
 			;
 
 AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 				{
+					// check: 若field有not null限制,则其必须有default值或目标表为空;没有not null限制时,若有default,则插入default, 否则插入null
+					// rebuild table
 					printf("YACC: alter add col\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP IDENTIFIER
 				{
+					// check: primary / indexed / slave
+					// rebuild table
 					printf("YACC: alter drop col\n");
 				}
 			|	ALTER TABLE IDENTIFIER CHANGE IDENTIFIER field
 				{
+					// check: cannot change primary key / indexed columns / slave columns
+					// rebuild table
+					// difficulty: type conversion?
 					printf("YACC: alter change field\n");
 				}
 			|	ALTER TABLE IDENTIFIER RENAME TO IDENTIFIER
 				{
+					// easy
 					printf("YACC: alter rename\n");
 				}
 			|	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
 				{
+					// check: any conflict?
+					// build: primary index
 					printf("YACC: alter add primary\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP PRIMARY KEY
 				{
+					// check: any slaves?
+					// clean: primary index
 					printf("YACC: alter drop primary\n");
 				}
 			|	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' colList ')' REFERENCES IDENTIFIER '(' colList ')'
 				{
+					// check: any conflict?
 					printf("YACC: alter add foreign\n");
 				}
 			|	ALTER TABLE IDENTIFIER DROP FOREIGN KEY IDENTIFIER
 				{
+					// easy
 					printf("YACC: alter drop foreign\n");
 				}
 			;
@@ -1306,6 +1502,12 @@ type		:	KW_INT
 						YYABORT;
 					}
 					*(uint*)$$.val.bytes = (intVal << 8) + intVal0; // p, s are stored in val
+				}
+			| 	NUMERIC
+				{
+					printf("YACC: default numeric\n");
+					$$.val.type = DataType::NUMERIC;
+					*(uint*)$$.val.bytes = 18 << 8; // p, s默认值是18和0
 				}
 			;
 

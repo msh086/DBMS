@@ -531,17 +531,55 @@ class Table{
         }
 
         /**
-         * Given the columns to match, return the best index for it(bptree page)
+         * Given the columns to match, return the best index for it //? bptree page
          * 可以使用索引的情况:
          * 查询列为c1, c2, ..., ck
-         * 且条件为c1:eq, c2:eq, ..., ck:range
+         * 且条件为c1:eq, c2:eq, ..., ck:range(low,high)
          * 且存在索引(c1, c2, ..., ck, ck+1, ...)
+         * 如何从where子句中获得c1, c2, ..., ck由parser负责
         */
-        uint BestIndexFor(uint cols){
-            uint ans = 0;
-            for(int i = 0; i < idxCount; i++){
-                // TODO
+        uchar BestIndexFor(uint eqColMask, uchar rangeCol){
+            uchar ans = INDEX_ID_NONE;
+            int minUnusedLength = MAX_COL_NUM * 65535;
+            int eqColCount = 0;
+            uint copy = eqColMask;
+            while(copy){ // 索引列较少时性能比暴力法好
+                eqColCount++;
+                copy &= copy - 1;
             }
+            for(int i = 0; i < idxCount; i++){ // 第i个索引
+                bool ok = true;
+                for(int j = 0; j < eqColCount; j++){
+                    uchar colID = header->indexID[i][j];
+                    if(colID == COL_ID_NONE || !getBitFromLeft(eqColMask, colID)){
+                        ok = false;
+                        break;
+                    }
+                }
+                // 如果有范围条件:
+                if(ok && rangeCol != COL_ID_NONE){
+                    uchar colID = header->indexID[i][eqColCount];
+                    if(colID == COL_ID_NONE || colID != rangeCol)
+                        ok = false;
+                }
+                if(ok){
+                    int tmpLength = 0;
+                    for(int j = rangeCol == COL_ID_NONE ? eqColCount : eqColCount + 1; j < MAX_COL_NUM; j++){
+                        uchar colID = header->indexID[i][j];
+                        if(colID == COL_ID_NONE)
+                            break;
+                        else
+                            tmpLength += DataType::constantLengthOf(header->attrType[colID], header->attrLenth[colID]); // 对长varchar有惩罚
+                    }
+                    if(tmpLength < minUnusedLength){
+                        minUnusedLength = tmpLength;
+                        ans = i;
+                        if(tmpLength == 0)
+                            break;
+                    }
+                }
+            }
+            return ans;
         }
 
         /**

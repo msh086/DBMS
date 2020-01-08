@@ -1,0 +1,13 @@
+外键约束的行为(参考sql server)
+1 当尝试删除或修改master中的一条记录时,如果这个记录在slave中被引用,则禁止操作
+2 如果一个表是另一个表的master,则不能删除这个表.除非先移除slave的外键约束
+3 如果一个表是另一个表的master,则不能删除这个表的主键约束,除非先移除slave的外键约束
+
+类型转换行为(参考sql server)
+RealFamily: int, float, bigint, numeric(decimal)互相可转换
+StrFamily char, varchar互相可转换
+DateFamily
+RealFamily->StrFamily: 可转换
+DateFamily->StrFamily: 可转换
+StrFamily->RealFamily: 部分可转换
+StrFamily->DateFamily: 部分可转换

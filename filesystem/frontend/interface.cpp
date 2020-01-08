@@ -17,10 +17,10 @@ int main(){
 
 	extern FILE* yyin;				//yyin和yyout都是FILE*类型
 	yyin = tmp;						//yacc会从yyin读取输入，yyin默认是标准输入，这里改为磁盘文件。yacc默认向yyout输出，可修改yyout改变输出目的
-    char buf[100];
+    char buf[1000];
     printf("start\n");
     long prevPos = fseek(tmp, 0, SEEK_END);
-    while(fgets(buf, 100, stdin)){
+    while(fgets(buf, 1000, stdin)){
         fputs(buf, tmp);
         fflush(tmp);
         fseek(tmp, prevPos, SEEK_SET);

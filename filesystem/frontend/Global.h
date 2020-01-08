@@ -93,6 +93,9 @@ class Global{
 		static void FieldNumNotMatch(int pos, int expected, int given){
 			newError(pos, format("Incompatible field num, %d expected, %d given", expected, given));
 		}
+		static void TableNameReserved(int pos, const char* name){
+			newError(pos, format("Table name %s is reserved for DBMS", name));
+		}
 
 		// field level
 		static void NoSuchField(int pos, const char* name){
@@ -175,6 +178,23 @@ class Global{
 		}
 		static void NotCharacter(int pos){
 			newError(pos, "Not a character");
+		}
+
+		// index
+		static void TooManyIndexes(int pos){
+			newError(pos, format("A table can have no more than %d indexes", MAX_INDEX_NUM));
+		}
+		static void IndexNameTooLong(int pos){
+			newError(pos, format("Index name should be no longer than %d", MAX_INDEX_NAME_LEN));
+		}
+		static void IndexNameConflict(int pos, const char* name){
+			newError(pos, format("Index with name %s already exists", name));
+		}
+		static void IndexNameReserved(int pos, const char* name){
+			newError(pos, format("Index name %s is reserved for DBMS", name));
+		}
+		static void NoSuchIndex(int pos, const char* name){
+			newError(pos, format("No index named %s", name));
 		}
 		
 		// others
