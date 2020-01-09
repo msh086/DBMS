@@ -598,6 +598,8 @@ class DataType{
             {
             case Comparator::Any:
                 return true;
+            case Comparator::None:
+                return false;
             case Comparator::Eq:
                 return eq(left, right, type, length, nullLeft, nullRight, leftConstant, rightConstant);
             case Comparator::Gt:
@@ -867,13 +869,13 @@ class DataType{
                             if(leftType == BIGINT)
                                 return IntNumCmp(*(ll*)left, rightLength, right, cmp, 19);
                             else
-                                return IntNumCmp(*(ll*)right, leftLength, left, Comparator::Opposite(cmp), 19);
+                                return IntNumCmp(*(ll*)right, leftLength, left, Comparator::Reverse(cmp), 19);
                         }
                         else{ // one is INT
                             if(leftType == INT)
                                 return IntNumCmp(*(int*)left, rightLength, right, cmp, 10);
                             else
-                                return IntNumCmp(*(int*)right, leftLength, left, Comparator::Opposite(cmp), 10);
+                                return IntNumCmp(*(int*)right, leftLength, left, Comparator::Reverse(cmp), 10);
                         }
                     }
                 }

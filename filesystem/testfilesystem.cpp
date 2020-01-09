@@ -35,24 +35,24 @@
 
 using namespace std;
 int main() {
-	char filename[30] = "../../testfile.txt";
-	std::ifstream fin;
-	fin.open(filename);
-	if(fin.fail())
-		return 1;
-	char buffer[200] = "";
-	char c;
-	while(char c = fin.get()){
-		if(c == EOF)
-			break;
-		printf("%c", c);
-	}
-	// while(fin.getline(buffer, 200)){
-	// 	printf("line with length of %d: %.*s\n", strnlen(buffer, 200), 200, buffer);
-	// 	memset(buffer, 0, 200);
+	// char filename[30] = "../../testfile.txt";
+	// std::ifstream fin;
+	// fin.open(filename);
+	// if(fin.fail())
+	// 	return 1;
+	// char buffer[200] = "";
+	// char c;
+	// while(char c = fin.get()){
+	// 	if(c == EOF)
+	// 		break;
+	// 	printf("%c", c);
 	// }
-	fin.close();
-	return 0;
+	// // while(fin.getline(buffer, 200)){
+	// // 	printf("line with length of %d: %.*s\n", strnlen(buffer, 200), 200, buffer);
+	// // 	memset(buffer, 0, 200);
+	// // }
+	// fin.close();
+	// return 0;
 
 
 	DBMS::Instance()->Init();
@@ -68,13 +68,18 @@ int main() {
 	IndexHeader * ih = new IndexHeader();
 	ih->attrType[0] = DataType::INT;
 	BplusTree* tree = new BplusTree(tb, ih);
-	RID rid(5, 6);
 
 	int eleCount = 10; // internal cap = 682, external cap = 511. About 30 full nodes
-	std::vector<int> vec;
+	std::vector<int> vec, pages;
 	for(int i = 0; i < eleCount; i++)
 		vec.push_back(i);
-	srand((ull)time(0));
+	int pageCount = 10;
+	for(int i = 0; i < pageCount; i++)
+		pages.push_back(i);
+
+	ull seed = (ull)time(0);
+	printf("seed: %llu\n", seed);
+	srand(seed); // 1578574308
 	std::random_shuffle(vec.begin(), vec.end());
 	printf("Insertion sequence\n");
 	for(int i = 0; i < eleCount; i++)
@@ -83,12 +88,15 @@ int main() {
 	uint buf[2] = {0};
 	for(int i = 0; i < eleCount; i++){
 		buf[1] = vec.at(i);
-		tree->SafeInsert((uchar*)&buf, rid);
-		tree->DebugPrint();
-		printf("\n");
+		std::random_shuffle(pages.begin(), pages.end());
+		for(auto page_it = pages.begin(); page_it != pages.end(); page_it++){
+			tree->SafeInsert((uchar*)buf, RID(0, *page_it));
+			//tree->DebugPrint();
+			//printf("\n");
+		}
 	}
-	// tree->DebugPrint();
-	// printf("\n");
+	tree->DebugPrint();
+	printf("\n");
 	printf("Start deletion\n");
 	std::random_shuffle(vec.begin(), vec.end());
 	printf("Deletion sequence:\n");
@@ -97,19 +105,17 @@ int main() {
 	printf("\n");
 	for(int i = 0; i < eleCount; i++){
 		buf[1] = vec.at(i);
-		tree->SafeRemove((uchar*)&buf, rid);
-		// if(i > eleCount - 5){ // print the last 5 removals...
-		// 	tree->DebugPrint();
-		// 	printf("\n");
-		// }
-		tree->DebugPrint();
-		printf("\n");
+		std::random_shuffle(pages.begin(), pages.end());
+		for(auto page_it = pages.begin(); page_it != pages.end(); page_it++){
+			tree->SafeRemove((uchar*)buf, RID(0, *page_it));
+			printf("Remove key %d with RID %d\n", vec.at(i), *page_it);
+			tree->DebugPrint();
+			printf("\n");
+		}
 	}
 
-	int bufInt = 0;
-	uchar* dst = (uchar*)&bufInt;
-	for(int i = 0; i < 13; i++, bufInt++)
-		tree->Insert(dst, rid);
+	printf("errorSign: %d\n", BplusTree::errorSign);
+
 	db->CloseTable("index test");
 	db->DeleteTable("index test");
 	return 0;

@@ -1014,11 +1014,28 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T4.IDList[0], T6, table))
 								return false;
 							// TODO: use index where possible
-							// build scanner
-							Scanner* scanner = ParsingHelper::buildScanner(table, helpers, whereHelpersCol, cmpUnitsNeeded);
-							// Print
-							scanner->PrintSelection(wantedCols);
-							delete scanner;
+							uint whereMask = 0;
+							uchar rangeCol = COL_ID_NONE, idxID = INDEX_ID_NONE;
+							std::vector<IndexHelper> idxHelpers;
+							if(ParsingHelper::CanUseIndex(table, whereHelpersCol, idxHelpers, whereMask, rangeCol)){
+								idxID = table->BestIndexFor(whereMask, rangeCol);
+								if(idxID != INDEX_ID_NONE){
+									// TODO
+									BplusTree* index = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[idxID]);
+									uchar idxBuf[index->header->recordLenth] = {0};
+									int bufPos = 4;
+									for(int i = 0; i < MAX_COL_NUM; i++){
+										// TODO
+									}
+								}
+							}
+							if(idxID == INDEX_ID_NONE){
+								// build scanner
+								Scanner* scanner = ParsingHelper::buildScanner(table, helpers, whereHelpersCol, cmpUnitsNeeded);
+								// Print
+								scanner->PrintSelection(wantedCols);
+								delete scanner;
+							}
 						}
 						else{
 							// TODO: multi-table query ?
@@ -1294,7 +1311,7 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 					// rebuild table
 					printf("YACC: alter drop col\n");
 				}
-			|	ALTER TABLE IDENTIFIER CHANGE IDENTIFIER field
+			|	ALTER TABLE IDENTIFIER CHANGE colField
 				{
 					// check: cannot change primary key / indexed columns / slave columns
 					// rebuild table
@@ -1305,6 +1322,41 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 				{
 					// easy
 					printf("YACC: alter rename\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($6);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T6 = typeVec[2];
+						if(Global::dbms->CurrentDatabase() == nullptr){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						if(ParsingHelper::TableNameReserved(T3.val.str.data())){
+							Global::TableNameReserved(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(T6.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T6.pos);
+							return false;
+						}
+						if(ParsingHelper::TableNameReserved(T6.val.str.data())){
+							Global::TableNameReserved(T6.pos, T6.val.str.data());
+							return false;
+						}
+						if(Global::dbms->CurrentDatabase()->GetTableID(T6.val.str.data()) != TB_ID_NONE){
+							Global::TableNameConflict(T6.pos);
+							return false;
+						}
+						if(!Global::dbms->CurrentDatabase()->RenameTable(T3.val.str.data(), T6.val.str.data())){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						return true;
+					};
 				}
 			|	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
 				{
@@ -1354,10 +1406,21 @@ fieldList	:	fieldList ',' field
 				}
 			;
 
-// field可以组成fieldList用于建表,也可以在alter add里面用于增加列
 // 名字长度已经经过检查
 // field.length应该保留varchar的原始长度
-field		:	IDENTIFIER type
+field		:	colField
+				{
+					printf("YACC: col field\n");
+					$$.field = $1.field;
+				}
+			|	consField
+				{
+					printf("YACC: constraint field\n");
+					$$.constraintList = $1.constraintList;
+				}
+
+// colField可以变成field用于建表,也可以在alter add里面用于增加列
+colField	:	IDENTIFIER type
 				{
 					printf("YACC: field normal\n");
 					if($1.val.str.length() > MAX_ATTRI_NAME_LEN){ // attribute name too long
@@ -1423,7 +1486,10 @@ field		:	IDENTIFIER type
 						YYABORT;
 					}
 				}
-			|	PRIMARY KEY '(' IdList ')'
+			;
+
+// 主键和外键约束
+consField	:	PRIMARY KEY '(' IdList ')'
 				{
 					printf("YACC: primary key\n");
 					Constraint tmp;

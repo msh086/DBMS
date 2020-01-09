@@ -96,12 +96,16 @@ class BplusTreeNode{
          * Find the first element > data in an internal node
          * @return The index of the found element, it will be 'BplusTreeNode.size' if data is the largest one
         */
-        int findFirstGreaterInInternal(const uchar* data, bool isConstant = false);
+        int findFirstGreaterInInternal(const uchar* data, int cmpColNum, bool isConstant = false);
+        /**
+         * Find the first element >= data in an internal node
+        */
+        int findFirstGtEqInInternal(const uchar* data, int cmpColNum, bool isConstant = false);
         /**
          * Find the first element > data in a leaf node
          * @return the index of the found element, it will be 'BplusTreeNode.size' if data is the largest one
         */
-        int findFirstEqGreaterInLeaf(const uchar* data, bool isConstant = false);
+        int findFirstEqGreaterInLeaf(const uchar* data, int cmpColNum, bool isConstant = false);
 
         // Slightly higher level APIs
 

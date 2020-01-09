@@ -26,7 +26,8 @@
 class BplusTree{
         // find the first record whose key is >= 'data'
         // store its b+ tree node and pos in node into 'node' and 'pos'
-        void _search(const uchar* data, BplusTreeNode*& node, int& pos, bool isConstant = false);
+        void _search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum = -1, bool isConstant = false);
+        bool _preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos, const RID& rid, int cmpColNum = -1, bool isConstant = false);
         int fid;
         int page;
         int headerIdx;
@@ -127,8 +128,8 @@ class BplusTree{
             
             // ! Debug only
             // 2-4 tree
-            // header->internalCap = 5;
-            // header->leafCap = 4;
+            header->internalCap = 5;
+            header->leafCap = 4;
             // ! end
             
             // root init
@@ -177,14 +178,14 @@ class BplusTree{
 
         // move the iterator right with comparison strategy 'mode', store the tree node and position into 'node' and 'pos'
         // return if the DataType::compareArr(this record, next record, mode) is true
-        bool MoveNext(BplusTreeNode*& node, int& pos, uchar mode){
+        bool MoveNext(BplusTreeNode*& node, int& pos, uchar mode, int cmpColNum){
             if(node->size == pos + 1){ // at the tail of a leaf node
                 if(*node->NextLeafPtr() == 0){ // the last leaf node
                     return false;
                 }
                 else{ // get the next leaf node
                     BplusTreeNode* nextNode = GetTreeNode(nullptr, *node->NextLeafPtr());
-                    if(DataType::compareArr(node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, colNum, mode)){
+                    if(DataType::compareArr(node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, cmpColNum, mode)){
                         node = nextNode;
                         pos = 0;
                         return true;
@@ -193,7 +194,7 @@ class BplusTree{
                 }
             }
             // no at the tail of current leaf node
-            if(DataType::compareArr(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, colNum, mode)){
+            if(DataType::compareArr(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, cmpColNum, mode)){
                 pos++;
                 return true;
             }
@@ -332,6 +333,7 @@ class BplusTree{
             }
         };
 #ifdef DEBUG
+        static bool errorSign;
         // skip null word and get the real value
         int extractInt(void* src){
             return *(int*)((char*)src + 4);
@@ -349,8 +351,10 @@ class BplusTree{
             while(head != pos){
                 BplusTreeNode* node = GetTreeNode(nullptr, buf[head].page);
 
-                if(node->parentPage != buf[head].parentPage || (node->parentPage != 0 && node->posInParent != buf[head].posInParent))
+                if(node->parentPage != buf[head].parentPage || (node->parentPage != 0 && node->posInParent != buf[head].posInParent)){
                     printf("*****Parent Info Doesn't Match*****\n");
+                    errorSign = true;
+                }
 
                 printf("node info:\n");
                 printf("type: %hhu, size: %hu, page: %u, parentPage: %u, posInParent: %hu", 
@@ -364,14 +368,18 @@ class BplusTree{
                     bool hasPrev = buf[head].hasLeftBound;
                     uint prevVal = buf[head].leftBound;
                     for(int i = 0; i < node->size; i++){
-                        if(hasPrev && prevVal > extractInt(node->KeyAt(i)))
+                        if(hasPrev && prevVal > extractInt(node->KeyAt(i))){
                             printf("*****Value Error*****\n");
+                            errorSign = true;
+                        }
                         hasPrev = true;
                         prevVal = extractInt(node->KeyAt(i));
                         printf("%u ", extractInt(node->KeyAt(i)));
                     }
-                    if(buf[head].hasRightBound && prevVal >= buf[head].rightBound)
+                    if(buf[head].hasRightBound && prevVal > buf[head].rightBound){
                         printf("*****Value Error*****\n");
+                        errorSign = true;
+                    }
                     printf("\nptrs: ");
                     for(int i = 0; i <= node->size; i++){
                         printf("%u ", *node->NodePtrAt(i));
@@ -403,15 +411,19 @@ class BplusTree{
                     bool hasPrev = buf[head].hasLeftBound;
                     int prevVal = buf[head].leftBound;
                     for(int i = 0; i < node->size; i++){
-                        if(hasPrev && prevVal > extractInt(node->KeynPtrAt(i)))
+                        if(hasPrev && prevVal > extractInt(node->KeynPtrAt(i))){
                             printf("*****Value Error In Leaf*****\n");
+                            errorSign = true;
+                        }
                         hasPrev = true;
                         prevVal = extractInt(node->KeynPtrAt(i));
                         uchar* tmpPtr = node->KeynPtrAt(i); // extract manually later
                         printf("(%u, %u, %u)\n", *(uint*)(tmpPtr + 4), *(uint*)(tmpPtr + header->recordLenth), *(uint*)(tmpPtr + 4 + header->recordLenth));
                     }
-                    if(buf[head].hasRightBound && prevVal >= buf[head].rightBound)
+                    if(buf[head].hasRightBound && prevVal > buf[head].rightBound){
                         printf("*****Value Error In Leaf*****\n");
+                        errorSign = true;
+                    }
                 }
                 // end internal & leaf
                 head++;

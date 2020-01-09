@@ -158,6 +158,163 @@ struct ParsingHelper{
 		return true;
 	}
 
+	// TODO: null value?
+	static bool CanUseIndex(Table* table, std::vector<SelectHelper>* whereHelpersCol, std::vector<IndexHelper>& idxHelpers, uint& whereMask, uchar& rangeCol){
+		whereMask = 0;
+		rangeCol = COL_ID_NONE;
+		for(int i = 0; i < table->ColNum(); i++){ // 对于每一列
+			if(whereHelpersCol[i].size() == 0)
+				continue;
+			std::sort(whereHelpersCol[i].begin(), whereHelpersCol[i].end(), [](const SelectHelper& left, const SelectHelper& right)->bool{
+				auto calcValue = [](uchar cmp)->uchar{
+					if(cmp == Comparator::Eq)
+						return 0;
+					if(cmp == Comparator::Gt || Comparator::GtEq)
+						return 1;
+					if(cmp == Comparator::Lt || Comparator::LtEq)
+						return 2;
+					if(cmp == Comparator::NE)
+						return 3;
+					assert(false);
+				};
+				return calcValue(left.cmp) < calcValue(right.cmp);
+			}); // 所有SelectHelper被根据Eq < Gt/GtEq < Lt/LtEq < NE排序
+			IndexHelper helper;
+			auto condCmp = [table](const Val& leftVal, const Val& rightVal, uchar colID, uchar cmp)->bool{
+				const uchar* left = nullptr, *right = nullptr;
+				bool nullLeft = leftVal.type == DataType::NONE, nullRight = rightVal.type == DataType::NONE;
+				uchar colType = table->GetHeader()->attrType[colID];
+				if(colType == DataType::CHAR || colType == DataType::VARCHAR){
+					left = (const uchar*)leftVal.str.data();
+					right = (const uchar*)rightVal.str.data();
+				}
+				else{
+					left = leftVal.bytes;
+					right = rightVal.bytes;
+				}
+				return DataType::compare(left, right, colType, table->GetHeader()->attrLenth[colID], cmp, nullLeft, nullRight, true, true);
+			};
+			for(auto it = whereHelpersCol[i].begin(); it != whereHelpersCol[i].end(); it++){ // 对于该字段的每一个条件
+				if(it->cmp == Comparator::Eq){
+					if(helper.isEq){
+						if(!condCmp(helper.eqVal, it->val, it->leftColID, Comparator::Eq))
+							return false;
+					}
+					helper.isEq = true;
+					helper.eqVal = it->val;
+				}
+				else if(it->cmp == Comparator::Gt || it->cmp == Comparator::GtEq){
+					if(helper.isEq){
+						// 唯一合法的两种情况: 1. >=: newValue <= oldValue; 2. >: newValue < oldValue
+						if(!condCmp(helper.eqVal, it->val, it->leftColID, it->cmp))
+							return false;
+					}
+					else if(helper.hasLower){
+						if(it->cmp == Comparator::GtEq){
+							if(condCmp(it->val, helper.lowerVal, it->leftColID, Comparator::GtEq)){ // newValue >= oldValue, newCmp is GtEq
+								helper.lowerCmp = Comparator::GtEq;
+								helper.lowerVal = it->val;
+							}
+						}
+						else{
+							if(condCmp(it->val, helper.lowerVal, it->leftColID, Comparator::Gt)){ // newValue > oldValue, newCmp is Gt
+								helper.lowerCmp = Comparator::Gt;
+								helper.lowerVal = it->val;
+							}
+						}
+					}
+					else{
+						helper.hasLower = true;
+						helper.lowerCmp = it->cmp;
+						helper.lowerVal = it->val;
+					}
+				}
+				else if(it->cmp == Comparator::Lt || it->cmp == Comparator::LtEq){
+					if(helper.isEq){
+						// 唯一合法的两种情况: 1. <=: newValue >= oldValue; 2. <: newValue > oldValue
+						if(!condCmp(helper.eqVal, it->val, it->leftColID, it->cmp))
+							return false;
+					}
+					else{ // 之前就是区间比较
+						// 首先检查upperVal,合并
+						if(helper.hasUpper){
+							if(it->cmp == Comparator::LtEq){
+								if(condCmp(it->val, helper.upperVal, it->leftColID, Comparator::Lt)){ // newValue < oldValue, newCmp is <=
+									helper.upperCmp = Comparator::LtEq;
+									helper.upperVal = it->val;
+								}
+								// newValue >= oldValue, newCmp is <= : use old cmp and val
+							}
+							else{
+								if(condCmp(it->val, helper.upperVal, it->leftColID, Comparator::LtEq)){ // newValue <= oldValue, newCmp is <
+									helper.upperCmp = Comparator::Lt;
+									helper.upperVal = it->val;
+								}
+								// newValue > oldValue, newCmp is < : use old cmp and val
+							}
+						}
+						// 然后检查
+						if(helper.hasLower){
+							if(!condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::Lt)){
+								if(helper.lowerCmp == Comparator::GtEq && it->cmp == Comparator::LtEq && condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::Eq)){
+									helper.hasLower = false; // ? hasUpper可能仍然为true
+									helper.isEq = true;
+									helper.eqVal = it->val;
+									// compare with upperVal
+								}
+								else
+									return false;
+							}
+							// compare with upperVal
+						}
+						else{
+							if(!helper.isEq){ // 没有在之前阶段被合并
+								helper.hasUpper = true;
+								helper.upperVal = it->val;
+								helper.upperCmp = it->cmp;
+							}
+						}
+					}
+				}
+				else if(it->cmp == Comparator::NE){
+					if(helper.isEq){
+						if(condCmp(helper.eqVal, it->val, it->leftColID, Comparator::Eq))
+							return false;
+					}
+					else{
+						bool safe = false;
+						if(helper.hasLower){
+							if(it->val, helper.lowerVal, it->leftColID, Comparator::LtEq){
+								safe = true;
+								if(helper.lowerCmp == Comparator::GtEq && condCmp(it->val, helper.lowerVal, it->leftColID, Comparator::Eq))
+									helper.lowerCmp = Comparator::Gt;
+							}
+						}
+						if(!safe && helper.hasUpper){
+							if(it->val, helper.upperVal, it->leftColID, Comparator::GtEq){
+								safe = true;
+								if(helper.upperCmp == Comparator::LtEq && condCmp(it->val, helper.upperVal, it->leftColID, Comparator::Eq))
+									helper.upperCmp = Comparator::Lt;
+							}
+						}
+						if(!safe)
+							return false;
+					}
+				}
+			} // end: for every condition
+			if(helper.isEq)
+				setBitFromLeft(whereMask, i);
+			else{
+				if(rangeCol != COL_ID_NONE) // TODO: 使用结果简化scanner条件
+					return false;
+				else
+					rangeCol = i;
+			}
+			idxHelpers.push_back(helper); // ? 使用时,从左到右扫描whereMask,按顺序从idxHelpers中读取
+		} // end: for every field
+		return true;
+	}
+
 	// 参数含义与checkWhereClause中的一样
 	static Scanner* buildScanner(Table* table, std::vector<SelectHelper>& helpers, std::vector<SelectHelper> *whereHelpersCol, int cmpUnitsNeeded){
 		Scanner* scanner = table->GetScanner(nullptr);

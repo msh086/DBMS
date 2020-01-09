@@ -55,6 +55,17 @@ struct SelectHelper{
 };
 // TODO: 查询条件的优化,如col = col <==> col is not null
 
+struct IndexHelper{
+	bool isEq = false;
+	bool hasLower = false;
+	bool hasUpper = false;
+	uchar lowerCmp = Comparator::Any;
+	uchar upperCmp = Comparator::Any;
+	Val eqVal;
+	Val lowerVal;
+	Val upperVal;
+};
+
 struct Constraint{
 	std::vector<std::string> IDList;
 	// for fk constraints

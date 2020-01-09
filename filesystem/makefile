@@ -39,7 +39,7 @@ clean :
 	- rm testfilesystem
 
 .PHONY : run
-run : main
+run :
 	cd test_run ; ../testfilesystem
 
 .PHONY : reset
