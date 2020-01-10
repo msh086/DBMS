@@ -549,7 +549,7 @@ class Table{
             }
             for(int i = 0; i < idxCount; i++){ // 第i个索引
                 bool ok = true;
-                for(int j = 0; j < eqColCount; j++){
+                for(int j = 0; j < eqColCount; j++){ // 索引的前eqColCount个字段构成的集合应该等于eqColMask指定的集合
                     uchar colID = header->indexID[i][j];
                     if(colID == COL_ID_NONE || !getBitFromLeft(eqColMask, colID)){
                         ok = false;
@@ -680,6 +680,22 @@ class Table{
         }
 
         void Print();
+        void PrintSelection(const std::vector<uchar>& wantedCols, const std::vector<RID> &selected){
+            std::vector<std::vector<std::string>> printTB;
+            printTB.push_back(std::vector<std::string>());
+            int colCount = wantedCols.size();
+            for(auto it = wantedCols.begin(); it != wantedCols.end(); it++)
+                printTB[0].push_back(std::string((char*)header->attrName[*it], strnlen((char*)header->attrName[*it], MAX_ATTRI_NAME_LEN)));
+            Record tmpRec;
+            for(auto rid_it = selected.begin(); rid_it != selected.end(); rid_it++){
+                std::vector<std::string> tmpVec;
+                GetRecord(*rid_it, &tmpRec);
+                for(auto field_it = wantedCols.begin(); field_it != wantedCols.end(); field_it++)
+                    tmpVec.push_back(Printer::FieldToStr(tmpRec, header->attrType[*field_it], *field_it, header->attrLenth[*field_it], offsets[*field_it]));
+                printTB.push_back(std::move(tmpVec));
+            }
+            Printer::PrintTable(printTB, colCount, printTB.size());
+        }
 
         Scanner* GetScanner(bool (*demand)(const Record& record));
         Scanner* GetScanner(const uchar* right, int colNum, uchar* cmp);

@@ -58,6 +58,10 @@ class Comparator{
                 assert(false);
             }
         }
+
+        static bool ContainEq(uchar cmp){
+            return cmp == Any || cmp == Eq || cmp == GtEq || cmp ==LtEq;
+        }
 };
 
 #endif

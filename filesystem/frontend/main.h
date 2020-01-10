@@ -159,7 +159,15 @@ struct ParsingHelper{
 	}
 
 	// TODO: null value?
-	static bool CanUseIndex(Table* table, std::vector<SelectHelper>* whereHelpersCol, std::vector<IndexHelper>& idxHelpers, uint& whereMask, uchar& rangeCol){
+	/**
+	 * @param table 索引的原始表
+	 * @param whereHelpersCol 类型为std::vector<SelectHelper>[table->ColNum()]
+	 * @param idxHelpers 类型为std::vector<IndexHelper>[table->ColNum()],类似java的Optional
+	 * @param whereMask where子句约束的字段中,所有约束条件为Eq的字段集合
+	 * @param rangeCol where字句约束的字段中,约束条件为range的字段ID,没有则为COL_ID_NONE
+	 * @return 是否可能可以使用索引,返回值为true iff 至多只有一个字段是range约束;没有相互冲突的约束,导致某一字段的可接受集为空;没有除了Eq和range之外的约束类型(e.g. a > 0 and a < 2 a != 1)
+	*/
+	static bool CanUseIndex(Table* table, std::vector<SelectHelper>* whereHelpersCol, std::vector<IndexHelper>* idxHelpers, uint& whereMask, uchar& rangeCol){
 		whereMask = 0;
 		rangeCol = COL_ID_NONE;
 		for(int i = 0; i < table->ColNum(); i++){ // 对于每一列
@@ -255,9 +263,9 @@ struct ParsingHelper{
 						}
 						// 然后检查
 						if(helper.hasLower){
-							if(!condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::Lt)){
+							if(condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::GtEq)){
 								if(helper.lowerCmp == Comparator::GtEq && it->cmp == Comparator::LtEq && condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::Eq)){
-									helper.hasLower = false; // ? hasUpper可能仍然为true
+									helper.hasLower = helper.hasUpper = false;
 									helper.isEq = true;
 									helper.eqVal = it->val;
 									// compare with upperVal
@@ -281,17 +289,17 @@ struct ParsingHelper{
 						if(condCmp(helper.eqVal, it->val, it->leftColID, Comparator::Eq))
 							return false;
 					}
-					else{
+					else if(it->val.type != DataType::NONE){ // just ignore 'is not null' for range comparison
 						bool safe = false;
 						if(helper.hasLower){
-							if(it->val, helper.lowerVal, it->leftColID, Comparator::LtEq){
+							if(condCmp(it->val, helper.lowerVal, it->leftColID, Comparator::LtEq)){
 								safe = true;
 								if(helper.lowerCmp == Comparator::GtEq && condCmp(it->val, helper.lowerVal, it->leftColID, Comparator::Eq))
 									helper.lowerCmp = Comparator::Gt;
 							}
 						}
 						if(!safe && helper.hasUpper){
-							if(it->val, helper.upperVal, it->leftColID, Comparator::GtEq){
+							if(condCmp(it->val, helper.upperVal, it->leftColID, Comparator::GtEq)){
 								safe = true;
 								if(helper.upperCmp == Comparator::LtEq && condCmp(it->val, helper.upperVal, it->leftColID, Comparator::Eq))
 									helper.upperCmp = Comparator::Lt;
@@ -310,7 +318,7 @@ struct ParsingHelper{
 				else
 					rangeCol = i;
 			}
-			idxHelpers.push_back(helper); // ? 使用时,从左到右扫描whereMask,按顺序从idxHelpers中读取
+			idxHelpers[i].push_back(helper);
 		} // end: for every field
 		return true;
 	}
@@ -446,7 +454,144 @@ struct ParsingHelper{
 };
 
 struct Debugger{
-	static bool debug(std::vector<Type> &typeVec){}
+	static bool debug(std::vector<Type> &typeVec){
+		Type &T1 = typeVec[0], &T2 = typeVec[1], &T4 = typeVec[2], &T6 = typeVec[3];
+		int selectNum = T2.colList.size();
+		if(T4.IDList.size() == 1){ // select from one table
+			if(!Global::dbms->CurrentDatabase()){
+				Global::NoActiveDb(T1.pos);
+				return false;
+			}
+			if(T4.IDList[0].length() > MAX_TABLE_NAME_LEN){
+				Global::TableNameTooLong(T4.pos);
+				return false;
+			}
+			Table* table = Global::dbms->CurrentDatabase()->OpenTable(T4.IDList[0].data());
+			if(!table){
+				Global::NoSuchTable(T4.pos, T4.IDList[0].data());
+				return false;
+			}
+			// check selector
+			std::vector<uchar> wantedCols;
+			if(!T2.selectAll){ // not select*
+				for(auto col_it = T2.colList.begin(); col_it != T2.colList.end(); col_it++){
+					if(col_it->tableName.length() && col_it->tableName != T4.IDList[0]){
+						Global::IrrelevantTable(T2.pos, col_it->tableName.data());
+						// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+						return false;
+					}
+					uchar tmpColID = table->IDofCol(col_it->colName.data());
+					if(tmpColID == COL_ID_NONE){
+						Global::NoSuchField(T2.pos, col_it->colName.data());
+						// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
+						return false;
+					}
+					wantedCols.push_back(tmpColID);
+				}
+				std::sort(wantedCols.begin(), wantedCols.end()); // sort it
+			}
+			else{ // select*
+				for(int i = 0; i < table->ColNum(); i++)
+					wantedCols.push_back(i);
+			}
+			// check whereClause validity
+			std::vector<SelectHelper> helpers; // FIXING: self cmps
+			std::vector<SelectHelper> whereHelpersCol[table->ColNum()]; // FIXING
+			int cmpUnitsNeeded = 0;
+			if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T4.IDList[0], T6, table))
+				return false;
+			// TODO: use index where possible
+			uint whereMask = 0;
+			uchar rangeCol = COL_ID_NONE, idxID = INDEX_ID_NONE;
+			std::vector<IndexHelper> idxHelpers[table->ColNum()];
+			if(ParsingHelper::CanUseIndex(table, whereHelpersCol, idxHelpers, whereMask, rangeCol)){
+				idxID = table->BestIndexFor(whereMask, rangeCol);
+				if(idxID != INDEX_ID_NONE){
+					// TODO
+					BplusTree* index = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[idxID]);
+					int constantIdxLength = DataType::calcConstantLength(index->header->attrType, index->header->attrLenth, index->colNum);
+					uchar idxBuf[constantIdxLength] = {0};
+					uchar lowupBuf[constantIdxLength] = {0}; // 为了上下界都存在时使用
+					int bufPos = 4;
+					int cmpColNum = 0;
+					for(int i = 0; i < MAX_COL_NUM; i++){ // 对于每一个索引列
+						uchar indexedCol = index->header->indexColID[i];
+						if(indexedCol == COL_ID_NONE)
+							break;
+						int constantFieldLenth = DataType::constantLengthOf(index->header->attrType[i], index->header->attrLenth[i]);
+						Val *val = nullptr;
+						if(getBitFromLeft(whereMask, indexedCol)){
+							cmpColNum++;
+							val = &idxHelpers[indexedCol][0].eqVal;
+						}
+						else if(rangeCol == indexedCol){ // cmpColNum在这里不更新
+							if(idxHelpers[indexedCol][0].hasLower){
+								val = &idxHelpers[indexedCol][0].lowerVal;
+								if(idxHelpers[indexedCol][0].hasUpper){
+									memcpy(lowupBuf, idxBuf, bufPos);
+									Val *lowupVal = &idxHelpers[indexedCol][0].upperVal;
+									if(lowupVal->type == DataType::NONE)
+										setBitFromLeft(*(uint*)lowupBuf, i);
+									else if(lowupVal->type == DataType::CHAR || lowupVal->type == DataType::VARCHAR){
+										memcpy(lowupBuf + bufPos, lowupVal->str.data(), lowupVal->str.length());
+									}
+									else{
+										memcpy(lowupBuf + bufPos, lowupVal->bytes, constantFieldLenth);
+									}
+								}
+							}
+							else if(idxHelpers[indexedCol][0].hasUpper)
+								val = &idxHelpers[indexedCol][0].upperVal;
+							else
+								break;
+						}
+						else
+							break;
+						// copy val to buf
+						if(val->type == DataType::NONE)
+							setBitFromLeft(*(uint*)idxBuf, i);
+						else if(val->type == DataType::CHAR || val->type == DataType::VARCHAR){
+							memcpy(idxBuf + bufPos, val->str.data(), val->str.length());
+						}
+						else{
+							memcpy(idxBuf + bufPos, val->bytes, constantFieldLenth);
+						}
+						bufPos += constantFieldLenth;
+					} // end: build idxBuf
+					std::vector<RID> results;
+					if(rangeCol == COL_ID_NONE) // case 2, 仅有Eq
+						index->SafeValueSelect(cmpColNum, idxBuf, Comparator::Eq, nullptr, Comparator::Eq, results);
+					else{
+						if(idxHelpers[rangeCol][0].hasUpper){
+							if(idxHelpers[rangeCol][0].hasLower){ // case 4, 有上下界
+								index->SafeValueSelect(cmpColNum, idxBuf, idxHelpers[rangeCol][0].lowerCmp, lowupBuf, idxHelpers[rangeCol][0].upperCmp, results);
+							}
+							else{ // case 1, 仅有上界
+								index->SafeValueSelect(cmpColNum, nullptr, Comparator::Eq, idxBuf, idxHelpers[rangeCol][0].upperCmp, results);
+							}
+						}
+						else{ // case 3, 仅有下界
+								index->SafeValueSelect(cmpColNum, idxBuf, idxHelpers[rangeCol][0].lowerCmp, nullptr, Comparator::Eq, results);
+						}
+					}
+					table->PrintSelection(wantedCols, results);
+					delete index;
+				} // end: idxID != INDEX_ID_NONE
+			}
+			// 不能使用索引
+			if(idxID == INDEX_ID_NONE){
+				// build scanner
+				Scanner* scanner = ParsingHelper::buildScanner(table, helpers, whereHelpersCol, cmpUnitsNeeded);
+				// Print
+				scanner->PrintSelection(wantedCols);
+				delete scanner;
+			}
+		}
+		else{
+			// TODO: multi-table query ?
+		}
+		return true;
+	}
 };
 
 #define YYSTYPE Type//把YYSTYPE(即yylval变量)重定义为struct Type类型，这样lex就能向yacc返回更多的数据了

@@ -1016,19 +1016,82 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							// TODO: use index where possible
 							uint whereMask = 0;
 							uchar rangeCol = COL_ID_NONE, idxID = INDEX_ID_NONE;
-							std::vector<IndexHelper> idxHelpers;
+							std::vector<IndexHelper> idxHelpers[table->ColNum()];
 							if(ParsingHelper::CanUseIndex(table, whereHelpersCol, idxHelpers, whereMask, rangeCol)){
 								idxID = table->BestIndexFor(whereMask, rangeCol);
 								if(idxID != INDEX_ID_NONE){
 									// TODO
 									BplusTree* index = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[idxID]);
-									uchar idxBuf[index->header->recordLenth] = {0};
+									int constantIdxLength = DataType::calcConstantLength(index->header->attrType, index->header->attrLenth, index->colNum);
+									uchar idxBuf[constantIdxLength] = {0};
+									uchar lowupBuf[constantIdxLength] = {0}; // 为了上下界都存在时使用
 									int bufPos = 4;
-									for(int i = 0; i < MAX_COL_NUM; i++){
-										// TODO
+									int cmpColNum = 0;
+									for(int i = 0; i < MAX_COL_NUM; i++){ // 对于每一个索引列
+										uchar indexedCol = index->header->indexColID[i];
+										if(indexedCol == COL_ID_NONE)
+											break;
+										int constantFieldLenth = DataType::constantLengthOf(index->header->attrType[i], index->header->attrLenth[i]);
+										Val *val = nullptr;
+										if(getBitFromLeft(whereMask, indexedCol)){
+											cmpColNum++;
+											val = &idxHelpers[indexedCol][0].eqVal;
+										}
+										else if(rangeCol == indexedCol){ // cmpColNum在这里不更新
+											if(idxHelpers[indexedCol][0].hasLower){
+												val = &idxHelpers[indexedCol][0].lowerVal;
+												if(idxHelpers[indexedCol][0].hasUpper){
+													memcpy(lowupBuf, idxBuf, bufPos);
+													Val *lowupVal = &idxHelpers[indexedCol][0].upperVal;
+													if(lowupVal->type == DataType::NONE)
+														setBitFromLeft(*(uint*)lowupBuf, i);
+													else if(lowupVal->type == DataType::CHAR || lowupVal->type == DataType::VARCHAR){
+														memcpy(lowupBuf + bufPos, lowupVal->str.data(), lowupVal->str.length());
+													}
+													else{
+														memcpy(lowupBuf + bufPos, lowupVal->bytes, constantFieldLenth);
+													}
+												}
+											}
+											else if(idxHelpers[indexedCol][0].hasUpper)
+												val = &idxHelpers[indexedCol][0].upperVal;
+											else
+												break;
+										}
+										else
+											break;
+										// copy val to buf
+										if(val->type == DataType::NONE)
+											setBitFromLeft(*(uint*)idxBuf, i);
+										else if(val->type == DataType::CHAR || val->type == DataType::VARCHAR){
+											memcpy(idxBuf + bufPos, val->str.data(), val->str.length());
+										}
+										else{
+											memcpy(idxBuf + bufPos, val->bytes, constantFieldLenth);
+										}
+										bufPos += constantFieldLenth;
+									} // end: build idxBuf
+									std::vector<RID> results;
+									if(rangeCol == COL_ID_NONE) // case 2, 仅有Eq
+										index->SafeValueSelect(cmpColNum, idxBuf, Comparator::Eq, nullptr, Comparator::Eq, results);
+									else{
+										if(idxHelpers[rangeCol][0].hasUpper){
+											if(idxHelpers[rangeCol][0].hasLower){ // case 4, 有上下界
+												index->SafeValueSelect(cmpColNum, idxBuf, idxHelpers[rangeCol][0].lowerCmp, lowupBuf, idxHelpers[rangeCol][0].upperCmp, results);
+											}
+											else{ // case 1, 仅有上界
+												index->SafeValueSelect(cmpColNum, nullptr, Comparator::Eq, idxBuf, idxHelpers[rangeCol][0].upperCmp, results);
+											}
+										}
+										else{ // case 3, 仅有下界
+												index->SafeValueSelect(cmpColNum, idxBuf, idxHelpers[rangeCol][0].lowerCmp, nullptr, Comparator::Eq, results);
+										}
 									}
-								}
+									table->PrintSelection(wantedCols, results);
+									delete index;
+								} // end: idxID != INDEX_ID_NONE
 							}
+							// 不能使用索引
 							if(idxID == INDEX_ID_NONE){
 								// build scanner
 								Scanner* scanner = ParsingHelper::buildScanner(table, helpers, whereHelpersCol, cmpUnitsNeeded);
@@ -1042,6 +1105,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						return true;
 					};
+					Global::action = Debugger::debug;
 				}
 			|	SELECT selector FROM IdList
 				{

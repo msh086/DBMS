@@ -142,8 +142,11 @@ void BplusTreeNode::RemoveKeynPtrAt(int pos){
  * Methods in BplusTree
 */
 
+/**
+ * ? cmpColNum == 0 => 搜索到最左叶子
+*/
 void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum, bool isConstant){
-    if(cmpColNum <= 0)
+    if(cmpColNum == -1)
         cmpColNum = colNum;
     BplusTreeNode* cur = root;
     while(cur->type == BplusTreeNode::Internal){
@@ -159,7 +162,7 @@ void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, int c
 }
 
 bool BplusTree::_preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos, const RID& rid, int cmpColNum, bool isConstant){
-    if(cmpColNum <= 0)
+    if(cmpColNum == -1)
         cmpColNum = colNum;
     _search(data, node, pos, cmpColNum, isConstant);
     if(pos == node->size){
@@ -182,6 +185,7 @@ bool BplusTree::_preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos
     }while(MoveNext(node, pos, Comparator::Eq, cmpColNum));
 }
 
+// TODO: 如果树高太大,前面的parent可能会被bpm释放  使用checkBuffer()?
 // insertion of duplicate record is permitted
 void BplusTree::Insert(const uchar* data, const RID& rid){
     header->recordNum++;
@@ -437,26 +441,80 @@ bool BplusTree::Search(const uchar* data, const RID& rid){ // TODO: compare equa
     // return found;
 }
 
-bool BplusTree::ValueSearch(const uchar* data, RID* rid){
+bool BplusTree::ValueSearch(const uchar* data, RID* rid, int cmpColNum){
     BplusTreeNode* node = nullptr;
     int pos = -1;
-    _search(data, node, pos, true); // ? data is constant
+    if(cmpColNum == -1)
+        cmpColNum = colNum;
+    _search(data, node, pos, cmpColNum, true); // ? data is constant
     if(pos == node->size){
         if(*node->NextLeafPtr() != 0){
             node = GetTreeNode(nullptr, *node->NextLeafPtr());
-            pos = node->findFirstEqGreaterInLeaf(data, colNum, true);
+            pos = node->findFirstEqGreaterInLeaf(data, cmpColNum, true);
             if(pos == node->size)
                 return false;
         }
         else
             return false;
     }
-    if(!DataType::compareArr(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, colNum, Comparator::Eq, false, true))
+    if(!DataType::compareArr(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, cmpColNum, Comparator::Eq, false, true))
         return false;
     uint* curRID = (uint*)(node->KeynPtrAt(pos) + header->recordLenth);
     rid->PageNum = curRID[0];
     rid->SlotNum = curRID[1];
     return true;
+}
+
+/**
+ * 按照给定的条件,检索record lowerCmp begin && record upperCmp end的记录,并把其RID写入results中
+ * 8种分类:
+ * 有无Eq * 有无上界 * 有无下界 = 8, 下面只涵盖了7种, 不包括全都没有的
+ * 三种情况:
+ * 1. begin == nullptr, 仅有上界(仅有rangeCol上界/Eq+上界), 使用0定位, 使用end/upperCmp/eqCols + 1移动
+ * 2. begin != nullptr, lowerCmp == Eq, end == nullptr, 仅有Eq, 使用eqCols定位, 使用begin/Eq/eqCols移动
+ * 3. begin != nullptr, lowerCmp != Eq, end == nullptr, 仅有下界(仅有rangeCol下界/Eq和下界), 使用eqCols + 1定位, 使用begin/lowerCmp/eqCols + 1移动
+ * 4. begin != nullptr, lowerCmp != Eq, end != nullptr, 有上下界(有/无Eq), 使用eqCols + 1定位, 使用end/upperCmp/eqCols + 1移动
+*/
+void BplusTree::ValueSelect(int eqCols, const uchar* begin, uchar lowerCmp, const uchar* end, uchar upperCmp, std::vector<RID> &results){
+    BplusTreeNode* node = root;
+    int pos = -1;
+    RID tmpRID;
+    if(begin != nullptr){ // case 2, 3, 4, default is case 2
+        int moveCols = eqCols; // this is true for case 2
+        uchar moveCmp = lowerCmp; // this is true for case 2 and case 3
+        const uchar* moveData = begin; // this is true for case 2 and case 3
+        if(lowerCmp != Comparator::Eq){ // range col有下界要求 case 3, case 4
+            moveCols++;
+        }
+        if(!ValueSearch(begin, &tmpRID, moveCols))
+            return;
+        if(lowerCmp == Comparator::Gt){
+            while(MoveNext(node, pos, Comparator::Eq, moveCols, begin)){}
+            if(pos == node->size)
+                return;
+        }
+        if(end != nullptr){ // case 4
+            moveCmp = upperCmp;
+            moveData = end;
+        }
+        do{
+            uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
+            tmpRID.PageNum = *(uint*)ridAddr;
+            tmpRID.SlotNum = *(uint*)(ridAddr + 4);
+            results.push_back(tmpRID);
+        }while(MoveNext(node, pos, moveCmp, moveCols, moveData));
+    }
+    else{ // case 1
+        int moveCols = eqCols + 1;
+        if(!ValueSearch(nullptr, &tmpRID, 0))
+            return;
+        do{
+            uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
+            tmpRID.PageNum = *(uint*)ridAddr;
+            tmpRID.SlotNum = *(uint*)(ridAddr + 4);
+            results.push_back(tmpRID);
+        }while(MoveNext(node, pos, upperCmp, moveCols, end));
+    }
 }
 
 void BplusTree::Remove(const uchar* data, const RID& rid){

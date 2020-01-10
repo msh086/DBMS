@@ -178,14 +178,21 @@ class BplusTree{
 
         // move the iterator right with comparison strategy 'mode', store the tree node and position into 'node' and 'pos'
         // return if the DataType::compareArr(this record, next record, mode) is true
-        bool MoveNext(BplusTreeNode*& node, int& pos, uchar mode, int cmpColNum){
+        /**
+         * @brief 给出b+树节点node和当前位置pos,Comparator的值mode,需要比较的字段树cmpColNum,以及和谁比较data
+         * 当data == nullptr时,如果满足条件this record mode next record,则前进一格,返回true
+         * 当data != nullptr时,执行常量比较,如果满足条件data mode next record,则前进一格,返回true
+         * 当next record不存在或不满足比较条件时,返回false
+        */
+        bool MoveNext(BplusTreeNode*& node, int& pos, uchar mode, int cmpColNum, const uchar* data = nullptr){
+            bool isConstant = data != nullptr;
             if(node->size == pos + 1){ // at the tail of a leaf node
                 if(*node->NextLeafPtr() == 0){ // the last leaf node
                     return false;
                 }
                 else{ // get the next leaf node
                     BplusTreeNode* nextNode = GetTreeNode(nullptr, *node->NextLeafPtr());
-                    if(DataType::compareArr(node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, cmpColNum, mode)){
+                    if(DataType::compareArr(isConstant ? data : node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, cmpColNum, mode, isConstant, false)){
                         node = nextNode;
                         pos = 0;
                         return true;
@@ -194,7 +201,7 @@ class BplusTree{
                 }
             }
             // no at the tail of current leaf node
-            if(DataType::compareArr(node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, cmpColNum, mode)){
+            if(DataType::compareArr(isConstant ? data : node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, cmpColNum, mode, isConstant, false)){
                 pos++;
                 return true;
             }
@@ -235,7 +242,8 @@ class BplusTree{
         void Insert(const uchar* data, const RID& rid);
         bool Search(const uchar* data, const RID& rid); // returns true iff both data and rid match
         void Remove(const uchar* data, const RID& rid);
-        bool ValueSearch(const uchar* data, RID* rid); // returns true iff data matches, store found RID in rid
+        bool ValueSearch(const uchar* data, RID* rid, int cmpColNum = -1); // returns true iff data matches, store found RID in rid
+        void ValueSelect(int eqCols, const uchar* begin, uchar lowerCmp, const uchar* end, uchar upperCmp, std::vector<RID> &results);
         
         // Memory-safe methods for Insert, Search and Remove
         void SafeInsert(const uchar* data, const RID& rid){
@@ -264,6 +272,11 @@ class BplusTree{
             bool ret = ValueSearch(data, rid);
             ClearAndWriteBackOpenedNodes();
             return ret;
+        }
+
+        void SafeValueSelect(int eqCols, const uchar* begin, uchar lowerCmp, const uchar* end, uchar upperCmp, std::vector<RID> &results){
+            ValueSelect(eqCols, begin, lowerCmp, end, upperCmp, results);
+            ClearAndWriteBackOpenedNodes();
         }
 
         uint TreeHeaderPage(){

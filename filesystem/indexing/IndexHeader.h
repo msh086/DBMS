@@ -27,6 +27,10 @@ class IndexHeader : public BaseHeader{
         uchar tableName[MAX_TABLE_NAME_LEN] = {0}; // name of the table this index belongs to
         uchar indexColID[MAX_COL_NUM] = {0}; // the id of the indexed columns
 
+        IndexHeader(){
+            memset(indexColID, COL_ID_NONE, MAX_COL_NUM);
+        }
+
         const static int lenth = sizeof(uint) * (6 + MAX_COL_NUM) +
             MAX_TABLE_NAME_LEN + 
             MAX_COL_NUM * 2;
