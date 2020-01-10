@@ -623,6 +623,8 @@ class DataType{
          * NOTE: 在B+树中使用
         */
         static bool compareArr(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar cmp, bool leftConstant = false, bool rightConstant = false){
+            if(colNum == 0)
+                return true;
             // 跳过null word
             uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
             left += 4;
@@ -642,7 +644,9 @@ class DataType{
          * NOTE: 在select语句中使用
          * ? leftConstant和rightConstant表示left和right是否是常量,当置为true时,从其中读取long varchar类型的字段时,不再通过RID,而直接从内存中读取
         */
-        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, uchar* cmp, bool leftConstant = false, bool rightConstant = false){
+        static bool compareArrMultiOp(const uchar* left, const uchar* right, const uchar* types, const ushort* lengths, int colNum, const uchar* cmp, bool leftConstant = false, bool rightConstant = false){
+            if(colNum == 0)
+                return true;
             // 跳过null word
             uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
             left += 4;

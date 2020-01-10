@@ -69,11 +69,11 @@ int main() {
 	ih->attrType[0] = DataType::INT;
 	BplusTree* tree = new BplusTree(tb, ih);
 
-	int eleCount = 10; // internal cap = 682, external cap = 511. About 30 full nodes
+	int eleCount = 5; // internal cap = 682, external cap = 511. About 30 full nodes
 	std::vector<int> vec, pages;
 	for(int i = 0; i < eleCount; i++)
 		vec.push_back(i);
-	int pageCount = 10;
+	int pageCount = 5;
 	for(int i = 0; i < pageCount; i++)
 		pages.push_back(i);
 

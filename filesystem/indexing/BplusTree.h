@@ -24,9 +24,11 @@
  *     [ (key, RID)... ] node pointer
 */
 class BplusTree{
-        // find the first record whose key is >= 'data'
-        // store its b+ tree node and pos in node into 'node' and 'pos'
-        void _search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum = -1, bool isConstant = false);
+        // 找到第一个索引值不小于data的索引记录
+        void _rawSearch(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum = -1, bool isConstant = false);
+        // 精确地找到值等于data的索引记录
+        bool _search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum = -1, bool isConstant = false, const uchar* cmps = nullptr);
+        // 精确地找到索引值和RID都和给定条件相等的索引记录
         bool _preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos, const RID& rid, int cmpColNum = -1, bool isConstant = false);
         int fid;
         int page;
@@ -180,8 +182,8 @@ class BplusTree{
         // return if the DataType::compareArr(this record, next record, mode) is true
         /**
          * @brief 给出b+树节点node和当前位置pos,Comparator的值mode,需要比较的字段树cmpColNum,以及和谁比较data
-         * 当data == nullptr时,如果满足条件this record mode next record,则前进一格,返回true
-         * 当data != nullptr时,执行常量比较,如果满足条件data mode next record,则前进一格,返回true
+         * 当data == nullptr时,如果满足条件next record mode this record,则前进一格,返回true
+         * 当data != nullptr时,执行常量比较,如果满足条件next record mode data,则前进一格,返回true
          * 当next record不存在或不满足比较条件时,返回false
         */
         bool MoveNext(BplusTreeNode*& node, int& pos, uchar mode, int cmpColNum, const uchar* data = nullptr){
@@ -192,7 +194,7 @@ class BplusTree{
                 }
                 else{ // get the next leaf node
                     BplusTreeNode* nextNode = GetTreeNode(nullptr, *node->NextLeafPtr());
-                    if(DataType::compareArr(isConstant ? data : node->KeynPtrAt(pos), nextNode->KeynPtrAt(0), header->attrType, header->attrLenth, cmpColNum, mode, isConstant, false)){
+                    if(DataType::compareArr(nextNode->KeynPtrAt(0), isConstant ? data : node->KeynPtrAt(pos), header->attrType, header->attrLenth, cmpColNum, mode, isConstant, false)){
                         node = nextNode;
                         pos = 0;
                         return true;
@@ -201,7 +203,32 @@ class BplusTree{
                 }
             }
             // no at the tail of current leaf node
-            if(DataType::compareArr(isConstant ? data : node->KeynPtrAt(pos), node->KeynPtrAt(pos + 1), header->attrType, header->attrLenth, cmpColNum, mode, isConstant, false)){
+            if(DataType::compareArr(node->KeynPtrAt(pos + 1), isConstant ? data : node->KeynPtrAt(pos), header->attrType, header->attrLenth, cmpColNum, mode, isConstant, false)){
+                pos++;
+                return true;
+            }
+            return false;
+        }
+
+        // 上面的MoveNext的混合比较版本
+        bool MoveNext(BplusTreeNode*& node, int& pos, const uchar* cmps, int cmpColNum, const uchar* data = nullptr){
+            bool isConstant = data != nullptr;
+            if(node->size == pos + 1){ // at the tail of a leaf node
+                if(*node->NextLeafPtr() == 0){ // the last leaf node
+                    return false;
+                }
+                else{ // get the next leaf node
+                    BplusTreeNode* nextNode = GetTreeNode(nullptr, *node->NextLeafPtr());
+                    if(DataType::compareArrMultiOp(nextNode->KeynPtrAt(0), isConstant ? data : node->KeynPtrAt(pos), header->attrType, header->attrLenth, cmpColNum, cmps, isConstant, false)){
+                        node = nextNode;
+                        pos = 0;
+                        return true;
+                    }
+                    return false;
+                }
+            }
+            // no at the tail of current leaf node
+            if(DataType::compareArrMultiOp(node->KeynPtrAt(pos + 1), isConstant ? data : node->KeynPtrAt(pos), header->attrType, header->attrLenth, cmpColNum, cmps, isConstant, false)){
                 pos++;
                 return true;
             }

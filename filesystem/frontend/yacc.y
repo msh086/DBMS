@@ -667,7 +667,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->bytes, DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
 								arg_pos++;
 							}
-							table->InsertRecord(tmpRec.GetData(), &tmpRID);
+							table->InsertRecord(tmpRec.GetData(), tmpRec.GetRid());
 							// update indexes
 							ParsingHelper::InsertIndexes(table, tmpRec);
 						}

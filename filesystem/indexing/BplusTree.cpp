@@ -34,37 +34,43 @@ uchar* BplusTreeNode::KeynPtrAt(int pos){
     return data + BplusTreeNode::reservedBytes + pos * (tree->header->recordLenth + 8);
 }
 
-int BplusTreeNode::findFirstGreaterInInternal(const uchar* data, int cmpColNum, bool isConstant){
+int BplusTreeNode::findFirstGreaterInInternal(const uchar* data, int cmpColNum, bool isConstant, const uchar* cmps){
     checkBuffer();
+    bool multiCmp = cmps != nullptr;
     uchar* cmpData = this->data + BplusTreeNode::reservedBytes;
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth){
         // TODO: binary search maybe ?
         // ! 因为存在重复键值,所以不能用二分查找
         // find the first element > data
-        if(DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, Comparator::Gt, false, isConstant))
+        if(!multiCmp && DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, Comparator::Gt, false, isConstant) ||
+        multiCmp && DataType::compareArrMultiOp(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, cmps, false, isConstant))
             return i;
     }
     return size;
 }
 
-int BplusTreeNode::findFirstGtEqInInternal(const uchar* data, int cmpColNum, bool isConstant){
+int BplusTreeNode::findFirstGtEqInInternal(const uchar* data, int cmpColNum, bool isConstant, const uchar* cmps){
     checkBuffer();
+    bool multiCmp = cmps != nullptr;
     uchar* cmpData = this->data + BplusTreeNode::reservedBytes;
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth){
-        if(DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, Comparator::GtEq, false, isConstant))
+        if(!multiCmp && DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, Comparator::GtEq, false, isConstant) ||
+        multiCmp && DataType::compareArrMultiOp(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, cmps, false, isConstant))
             return i;
     }
     return size;
 }
 
-int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data, int cmpColNum, bool isConstant){
+int BplusTreeNode::findFirstEqGreaterInLeaf(const uchar* data, int cmpColNum, bool isConstant, const uchar* cmps){
     checkBuffer();
+    bool multiCmp = cmps != nullptr;
     uchar* cmpData = this->data + BplusTreeNode::reservedBytes;
     for(int i = 0; i < size; i++, cmpData += tree->header->recordLenth + 8){
-        if(DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, Comparator::GtEq, false, isConstant))
+        if(!multiCmp && DataType::compareArr(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, Comparator::GtEq, false, isConstant) ||
+        multiCmp && DataType::compareArrMultiOp(cmpData, data, tree->header->attrType, tree->header->attrLenth, cmpColNum, cmps, false, isConstant))
             return i;
     }
-    return size; // ! 
+    return size;
 }
 
 
@@ -142,17 +148,14 @@ void BplusTreeNode::RemoveKeynPtrAt(int pos){
  * Methods in BplusTree
 */
 
-/**
- * ? cmpColNum == 0 => 搜索到最左叶子
-*/
-void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum, bool isConstant){
+void BplusTree::_rawSearch(const uchar* data,BplusTreeNode*& node, int& pos, int cmpColNum, bool isConstant){
     if(cmpColNum == -1)
         cmpColNum = colNum;
     BplusTreeNode* cur = root;
     while(cur->type == BplusTreeNode::Internal){
         // a leaf node may be under-sized, but an internal node will never be
         // int posG = cur->findFirstGreaterInInternal(data, isConstant); // pos is the exact subtree id to look up in
-        int posG = cur->findFirstGtEqInInternal(data, cmpColNum, isConstant); // ! 允许重复键值的后果
+        int posG = cur->findFirstGtEqInInternal(data, cmpColNum, isConstant); // ! 允许重复键值的后果,使用firstGtEq而非firstGt
         cur = GetTreeNode(cur, *cur->NodePtrAt(posG));
         cur->posInParent = posG;
     }
@@ -161,28 +164,45 @@ void BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, int c
     node = cur;
 }
 
-bool BplusTree::_preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos, const RID& rid, int cmpColNum, bool isConstant){
+/**
+ * 是否存在一个索引值等于dat?是则返回true,否则返回false
+ * ? cmpColNum == 0 => 搜索到最左叶子
+*/
+bool BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum, bool isConstant, const uchar* cmps){
     if(cmpColNum == -1)
         cmpColNum = colNum;
-    _search(data, node, pos, cmpColNum, isConstant);
+    bool multiCmp = cmps != nullptr;
+    _rawSearch(data, node, pos, cmpColNum, isConstant);
     if(pos == node->size){
         if(*node->NextLeafPtr() != 0){
             node = GetTreeNode(nullptr, *node->NextLeafPtr());
-            pos = node->findFirstEqGreaterInLeaf(data, cmpColNum, isConstant);
+            pos = node->findFirstEqGreaterInLeaf(data, cmpColNum, isConstant, cmps);
             if(pos == node->size)
                 return false;
         }
         else
             return false;
     }
-    if(!DataType::compareArr(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, cmpColNum, Comparator::Eq, false, isConstant))
+    if(!multiCmp && !DataType::compareArr(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, cmpColNum, Comparator::Eq, false, isConstant) ||
+    multiCmp && !DataType::compareArrMultiOp(node->KeynPtrAt(pos), data, header->attrType, header->attrLenth, cmpColNum, cmps, false, isConstant))
+        return false;
+    return true;
+}
+
+/**
+ * 只有当索引值和RID都相等时,才返回true
+*/
+bool BplusTree::_preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos, const RID& rid, int cmpColNum, bool isConstant){
+    if(cmpColNum == -1)
+        cmpColNum = colNum;
+    if(!_search(data, node, pos, cmpColNum, isConstant))
         return false;
     do{
         uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
         uint dstPage = *(uint*)ridAddr, dstSlot = *(uint*)(ridAddr + 4);
         if(dstPage == rid.PageNum && dstSlot == rid.SlotNum)
             return true;
-    }while(MoveNext(node, pos, Comparator::Eq, cmpColNum));
+    }while(MoveNext(node, pos, Comparator::Eq, cmpColNum, data));
 }
 
 // TODO: 如果树高太大,前面的parent可能会被bpm释放  使用checkBuffer()?
@@ -479,41 +499,57 @@ void BplusTree::ValueSelect(int eqCols, const uchar* begin, uchar lowerCmp, cons
     BplusTreeNode* node = root;
     int pos = -1;
     RID tmpRID;
+    uchar cmps[eqCols + 1] = {0};
+    memset(cmps, Comparator::Eq, sizeof(cmps));
     if(begin != nullptr){ // case 2, 3, 4, default is case 2
         int moveCols = eqCols; // this is true for case 2
-        uchar moveCmp = lowerCmp; // this is true for case 2 and case 3
         const uchar* moveData = begin; // this is true for case 2 and case 3
         if(lowerCmp != Comparator::Eq){ // range col有下界要求 case 3, case 4
             moveCols++;
         }
-        if(!ValueSearch(begin, &tmpRID, moveCols))
+        // ? 执行的实际上是混合比较,前eqCols个字段是Eq,最后一个字段(如果有的话)是lowerCmp/upperCmp
+        _search(begin, node, pos, moveCols, true); // 找不到也无妨,例如_search在>0条件下,找不到0回返回false
+        if(node->size == pos)
             return;
         if(lowerCmp == Comparator::Gt){
-            while(MoveNext(node, pos, Comparator::Eq, moveCols, begin)){}
-            if(pos == node->size)
+            while(MoveNext(node, pos, Comparator::Eq, moveCols, begin)){} // 跳过所有值和begin相等的索引值
+            // 此时,pos所在的索引值仍然有可能等于begin
+            if(DataType::compareArr(node->KeynPtrAt(pos), begin, header->attrType, header->attrLenth, moveCols, Comparator::Eq, false, true) &&
+            !MoveNext(node, pos, Comparator::Any, 0, begin))
                 return;
         }
         if(end != nullptr){ // case 4
-            moveCmp = upperCmp;
+            cmps[eqCols] = upperCmp;
             moveData = end;
         }
-        do{
-            uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
-            tmpRID.PageNum = *(uint*)ridAddr;
-            tmpRID.SlotNum = *(uint*)(ridAddr + 4);
-            results.push_back(tmpRID);
-        }while(MoveNext(node, pos, moveCmp, moveCols, moveData));
-    }
-    else{ // case 1
-        int moveCols = eqCols + 1;
-        if(!ValueSearch(nullptr, &tmpRID, 0))
+        else if(lowerCmp != Comparator::Eq) // case 3
+            cmps[eqCols] = lowerCmp;
+        // _search返回false,Gt导致跳过部分记录,rangeCol. 都会导致pos处的索引不符合要求
+        if(!DataType::compareArrMultiOp(node->KeynPtrAt(pos), begin, header->attrType, header->attrLenth, eqCols, cmps, false, true))
             return;
         do{
             uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
             tmpRID.PageNum = *(uint*)ridAddr;
             tmpRID.SlotNum = *(uint*)(ridAddr + 4);
             results.push_back(tmpRID);
-        }while(MoveNext(node, pos, upperCmp, moveCols, end));
+        }while(MoveNext(node, pos, cmps, moveCols, moveData));
+    }
+    else{ // case 1
+        uchar cmps[eqCols + 1] = {0};
+        memset(cmps, Comparator::Eq, eqCols);
+        cmps[eqCols] = upperCmp;
+        int moveCols = eqCols + 1;
+        if(!_search(nullptr, node, pos, 0, true))
+            return;
+        // 可能第一条记录就不符合要求
+        if(!DataType::compareArrMultiOp(node->KeynPtrAt(pos), end, header->attrType, header->attrLenth, moveCols, cmps, false, true))
+            return;
+        do{
+            uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
+            tmpRID.PageNum = *(uint*)ridAddr;
+            tmpRID.SlotNum = *(uint*)(ridAddr + 4);
+            results.push_back(tmpRID);
+        }while(MoveNext(node, pos, cmps, moveCols, end));
     }
 }
 

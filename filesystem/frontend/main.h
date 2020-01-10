@@ -261,25 +261,21 @@ struct ParsingHelper{
 								// newValue > oldValue, newCmp is < : use old cmp and val
 							}
 						}
+						else{
+							helper.hasUpper = true;
+							helper.upperVal = it->val;
+							helper.upperCmp = it->cmp;
+						}
 						// 然后检查
 						if(helper.hasLower){
-							if(condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::GtEq)){
-								if(helper.lowerCmp == Comparator::GtEq && it->cmp == Comparator::LtEq && condCmp(helper.lowerVal, it->val, it->leftColID, Comparator::Eq)){
+							if(condCmp(helper.lowerVal, helper.upperVal, it->leftColID, Comparator::GtEq)){
+								if(helper.lowerCmp == Comparator::GtEq && helper.upperCmp == Comparator::LtEq && condCmp(helper.lowerVal, helper.upperVal, it->leftColID, Comparator::Eq)){
 									helper.hasLower = helper.hasUpper = false;
 									helper.isEq = true;
-									helper.eqVal = it->val;
-									// compare with upperVal
+									helper.eqVal = helper.lowerVal;
 								}
 								else
 									return false;
-							}
-							// compare with upperVal
-						}
-						else{
-							if(!helper.isEq){ // 没有在之前阶段被合并
-								helper.hasUpper = true;
-								helper.upperVal = it->val;
-								helper.upperCmp = it->cmp;
 							}
 						}
 					}
