@@ -207,6 +207,9 @@ class Global{
 		static void MultipleSetForField(int pos){
 			newError(pos, "Cannot assign a field twice");
 		}
+		static void AmbiguousField(int pos, const char* name){
+			newError(pos, format("Field %s has multiple candidates", name));
+		}
 };
 
 #endif

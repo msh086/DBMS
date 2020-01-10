@@ -699,7 +699,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						std::vector<SelectHelper> helpers;
 						std::vector<SelectHelper> whereHelpersCol[table->ColNum()]; // FIXING
 						int cmpUnitsNeeded = 0;
-						if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T3.val.str, T5, table))
+						if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T3.val.str, T5.condList, table, T5.pos))
 							return false;
 						// TODO: use index where possible
 						// build scanner
@@ -761,7 +761,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						std::vector<SelectHelper> helpers;
 						std::vector<SelectHelper> whereHelpersCol[table->ColNum()]; // FIXING
 						int cmpUnitsNeeded = 0;
-						if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T2.val.str, T6, table))
+						if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T2.val.str, T6.condList, table, T6.pos))
 							return false;
 						// check primary key: 只要update的字段和主键字段交集为空即可.反之,设剩余主键集合为R,如果符合要求的记录中,R集合有重复元素,则报错.这是由于update都是常量
 						// 需要知道的: 被update的主键,没被update的主键
@@ -993,6 +993,10 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 										// Global::dbms->CurrentDatabase()->CloseTable(T4.IDList[0].data());
 										return false;
 									}
+									if(col_it->colName.length() > MAX_ATTRI_NAME_LEN){
+										Global::FieldNameTooLong(T2.pos);
+										return false;
+									}
 									uchar tmpColID = table->IDofCol(col_it->colName.data());
 									if(tmpColID == COL_ID_NONE){
 										Global::NoSuchField(T2.pos, col_it->colName.data());
@@ -1011,7 +1015,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							std::vector<SelectHelper> helpers; // FIXING: self cmps
 							std::vector<SelectHelper> whereHelpersCol[table->ColNum()]; // FIXING
 							int cmpUnitsNeeded = 0;
-							if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T4.IDList[0], T6, table))
+							if(!ParsingHelper::checkWhereClause(helpers, whereHelpersCol, cmpUnitsNeeded, T4.IDList[0], T6.condList, table, T6.pos))
 								return false;
 							// TODO: use index where possible
 							uint whereMask = 0;
@@ -1102,10 +1106,155 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						else{
 							// TODO: multi-table query ?
+							if(!Global::dbms->CurrentDatabase()){
+								Global::NoActiveDb(T1.pos);
+								return false;
+							}
+							Table* tables[T4.IDList.size()] = {0};
+							auto tableNameToIndex = [&](const std::string& name)->int{
+								for(int i = 0; i < T4.IDList.size(); i++)
+									if(T4.IDList[i] == name)
+										return i;
+								return -1;
+							};
+							auto colNameToTable = [&](const std::string& name, uchar& tbID, uchar& colID, int pos)->bool{
+								tbID = TB_ID_NONE;
+								colID = COL_ID_NONE;
+								for(int i = 0; i < T4.IDList.size(); i++){
+									uchar tmpColID = tables[i]->IDofCol(name.data());
+									if(tmpColID != COL_ID_NONE){
+										if(colID != COL_ID_NONE){
+											Global::AmbiguousField(pos, name.data());
+											return false;
+										}
+										colID = tmpColID;
+										tbID = i;
+									}
+								}
+								if(colID == COL_ID_NONE){
+									Global::NoSuchField(pos, name.data());
+									return false;
+								}
+								return true;
+							};
+							for(int i = 0; i < T4.IDList.size(); i++){
+								if(T4.IDList[i].length() > MAX_TABLE_NAME_LEN){
+									Global::TableNameTooLong(T4.pos);
+									return false;
+								}
+								tables[i] = Global::dbms->CurrentDatabase()->OpenTable(T4.IDList[i].data());
+								if(!tables[i]){
+									Global::NoSuchTable(T4.pos, T4.IDList[0].data());
+									return false;
+								}
+							}
+							// check selector
+							std::vector<uchar> wantedCols[T4.IDList.size()];
+							if(!T2.selectAll){
+								for(auto col_it = T2.colList.begin(); col_it != T2.colList.end(); col_it++){
+									if(col_it->colName.length() > MAX_ATTRI_NAME_LEN){
+										Global::FieldNameTooLong(T2.pos);
+										return false;
+									}
+									if(col_it->tableName.length()){
+										int tableIndex = tableNameToIndex(col_it->tableName);
+										if(tableIndex == -1){
+											Global::IrrelevantTable(T2.pos, col_it->tableName.data());
+											return false;
+										}
+										uchar colID = tables[tableIndex]->IDofCol(col_it->colName.data());
+										if(colID == COL_ID_NONE){
+											Global::NoSuchField(T2.pos, col_it->colName.data());
+											return false;
+										}
+										wantedCols[tableIndex].push_back(colID);
+									}
+									else{
+										uchar colID = COL_ID_NONE, tbID = TB_ID_NONE;
+										if(!colNameToTable(col_it->colName, tbID, colID, T2.pos))
+											return false;
+										wantedCols[tbID].push_back(colID);
+									}
+								}
+								for(int i = 0; i < T4.IDList.size(); i++)
+									std::sort(wantedCols[i].begin(), wantedCols[i].end());
+							}
+							else{ // select*
+								for(int i = 0; i < T4.IDList.size(); i++)
+									for(int j = 0; j < tables[i]->ColNum(); j++)
+										wantedCols[i].push_back(j);
+							}
+							// check whereClause validity
+							// TODO
+							MultiScanner multiScanner;
+							std::vector<SelectHelper> helpers[T4.IDList.size()];
+							std::vector<SelectHelper> whereHelpersCol[T4.IDList.size()][MAX_COL_NUM];
+							int cmpUnitsNeeded[T4.IDList.size()] = {0};
+							std::vector<WhereInstr> whereClauses[T4.IDList.size()];
+							bool canBuildScanner[T4.IDList.size()] = {0};
+							// TODO
+							for(auto where_it = T6.condList.begin(); where_it != T6.condList.end(); where_it++){
+								// TODO: distribute WhereInstr
+								auto checkWhereInstr = [&](const Col& col, uchar& tableID, uchar& colID)->bool{
+									if(col.colName.length() > MAX_ATTRI_NAME_LEN){
+										Global::FieldNameTooLong(T6.pos);
+										return false;
+									}
+									if(col.tableName.length()){
+										int tableIndex = tableNameToIndex(col.tableName);
+										if(tableIndex == -1){
+											Global::IrrelevantTable(T6.pos, col.tableName.data());
+											return false;
+										}
+										tableID = tableIndex;
+										colID = tables[tableIndex]->IDofCol(col.colName.data());
+										if(colID == COL_ID_NONE){
+											Global::NoSuchField(T6.pos, col.colName.data());
+											return false;
+										}
+									}
+									else{
+										if(!colNameToTable(col.colName, tableID, colID, T6.pos))
+											return false;
+									}
+									return true;
+								};
+								// 检查左侧
+								uchar leftTableID = TB_ID_NONE, leftColID = COL_ID_NONE;
+								if(!checkWhereInstr(where_it->column, leftTableID, leftColID))
+									return false;
+								// 检查右侧
+								if(where_it->isExprCol){
+									uchar rightTableID = TB_ID_NONE, rightColID = COL_ID_NONE;
+									if(!checkWhereInstr(where_it->exprCol, rightTableID, rightColID))
+										return false;
+									if(leftTableID == rightTableID){
+										whereClauses[leftTableID].push_back(*where_it);
+										canBuildScanner[leftTableID] = true;
+									}
+									else
+										multiScanner.AddUnit(leftTableID, leftColID, rightTableID, rightColID, where_it->cmp);
+								}
+								else{
+									whereClauses[leftTableID].push_back(*where_it);
+									canBuildScanner[leftTableID] = true;
+								}
+							}
+							for(int i = 0; i < T4.IDList.size(); i++){
+								if(!ParsingHelper::checkWhereClause(helpers[i], whereHelpersCol[i], cmpUnitsNeeded[i], T4.IDList[i], whereClauses[i], tables[i], T6.pos))
+									return false;
+							}
+							for(int i = 0; i < T4.IDList.size(); i++){
+								if(canBuildScanner[i])
+									multiScanner.AddScanner(ParsingHelper::buildScanner(tables[i], helpers[i], whereHelpersCol[i], cmpUnitsNeeded[i]));
+								else
+									multiScanner.AddScanner(tables[i]->GetScanner([](const Record& rec)->bool{return true;}));
+							}
+							multiScanner.PrintSelection(wantedCols);
+							multiScanner.DeleteScanners();
 						}
 						return true;
 					};
-					Global::action = Debugger::debug;
 				}
 			|	SELECT selector FROM IdList
 				{
