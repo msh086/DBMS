@@ -681,6 +681,10 @@ class Table{
             return header;
         }
 
+        Header* GetWriteHeader(){
+            return header;
+        }
+
         int ColNum(){
             return colCount;
         }

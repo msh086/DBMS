@@ -165,6 +165,19 @@ class BplusTree{
             // nodes.pop_back();
         }
 
+        void UpdateColID(uchar dropCol){
+            data = bpm->reusePage(fid, page, headerIdx, data);
+            uchar* colsOffset = data + IndexHeader::IndexColOffset;
+            for(int i = 0; i < MAX_COL_NUM; i++){
+                if(colsOffset[i] == COL_ID_NONE)
+                    break;
+                if(colsOffset[i] > dropCol){
+                    colsOffset[i]--;
+                    bpm->markDirty(headerIdx);
+                }
+            }
+        }
+
         void UpdateRecordNum(){
             data = bpm->reusePage(fid, page, headerIdx, data);
             ((uint*)data)[1] = header->recordNum;
@@ -271,6 +284,25 @@ class BplusTree{
         void Remove(const uchar* data, const RID& rid);
         bool ValueSearch(const uchar* data, RID* rid, int cmpColNum = -1); // returns true iff data matches, store found RID in rid
         void ValueSelect(int eqCols, const uchar* begin, uchar lowerCmp, const uchar* end, uchar upperCmp, std::vector<RID> &results);
+        
+        bool SearchAndUpdate(const uchar* data, const RID& oldRID, const RID& newRID){
+            BplusTreeNode* node = nullptr;
+            int pos = -1;
+            bool res = _preciseSearch(data, node, pos, oldRID);
+            if(!res)
+                return false;
+            uchar* ridAddr = node->KeynPtrAt(pos) + header->recordLenth;
+            *(uint*)ridAddr = newRID.PageNum;
+            *(uint*)(ridAddr + 4) = newRID.SlotNum;
+            node->syncWithBuffer();
+            return true;
+        }
+
+        bool SafeUpdate(const uchar* data, const RID& oldRID, const RID& newRID){
+            bool res = SearchAndUpdate(data, oldRID, newRID);
+            ClearAndWriteBackOpenedNodes();
+            return res;
+        }
 
         bool RecExists(const uchar* data){
             BplusTreeNode* node = nullptr;

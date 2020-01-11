@@ -157,6 +157,9 @@ class Global{
 		static void ConstraintNameTooLong(int pos){
 			newError(pos, format("Constraint name shoubld be no longer than %d", MAX_CONSTRAINT_NAME_LEN));
 		}
+		static void ModifyReferenced(int pos, const char* slave, const uchar* fkname){
+			newError(pos, format("Trying to modify a primary key combination referenced by slave %.*s in FK %.*s", MAX_TABLE_NAME_LEN, slave, MAX_CONSTRAINT_NAME_LEN, fkname));
+		}
 
 		// type
 		static void IllegalCharLength(int pos){
@@ -221,6 +224,20 @@ class Global{
 		}
 		static void AmbiguousField(int pos, const char* name){
 			newError(pos, format("Field %s has multiple candidates", name));
+		}
+
+		// drop
+		static void DropPrimaryCol(int pos, const char* name){
+			newError(pos, format("Cannot drop primary column %s", name));
+		}
+		static void DropIndexCol(int pos, const char* name){
+			newError(pos, format("Cannot drop indexed column %s", name));
+		}
+		static void DropFKCol(int pos, const char* name){
+			newError(pos, format("Cannot drop fkSlave column %s", name));
+		}
+		static void DropOnlyCol(int pos, const char* name){
+			newError(pos, format("Cannot drop the only column %s", name));
 		}
 };
 

@@ -159,7 +159,7 @@ int Table::AddFKMaster(uchar masterID, std::vector<uchar> slaveKeys, const char*
 
 void Table::Print(){
     Record tmpRec;
-    RID tmpRID(1, 0);
+    RID tmpRID(START_PAGE, 0);
     GetRecord(tmpRID, &tmpRec);
     std::vector<std::vector<std::string>> table;
     // name, type, nullable, default
@@ -217,7 +217,7 @@ void Table::Print(){
         }
         assert(found);
         memcpy(tableNameBuf, tmpRec.GetData() + 4, MAX_TABLE_NAME_LEN); // mull word
-        tables->Reset();
+        tables->Reset(); // db->OpenTable要用到这个scanner,必须现在reset
         tmpRec.FreeMemory();
         Table* master = db->OpenTable(tableNameBuf);
         assert(master);

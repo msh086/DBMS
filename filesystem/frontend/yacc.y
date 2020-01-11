@@ -682,6 +682,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 					Global::types.push_back($1);
 					Global::types.push_back($3);
 					Global::types.push_back($5);
+					// TODO: 引用该表的slave表?
 					Global::action = [](std::vector<Type> &typeVec){
 						Type &T1 = typeVec[0], &T3 = typeVec[1], &T5 = typeVec[2];
 						if(!Global::dbms->CurrentDatabase()){
@@ -719,6 +720,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 				}
 			|	UPDATE IDENTIFIER SET setClause WHERE whereClause // 不涉及多表; set col = value, 不会出现set col = col
 				{
+					// TODO: 引用该表的slave表?
 					printf("YACC: update tb\n");
 					Global::types.push_back($1);
 					Global::types.push_back($2);
@@ -794,13 +796,39 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						Global::scanners.push_back(scanner);
 						// check primary constraint
 						Record tmpRec;
-						if(primaryMask){
+						if(primaryMask & updateMask){ // 主键被修改
 							BplusTree* primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage);
 							Global::globalTree = primaryIdx;
 							std::set<const uchar*, bool(*)(const uchar*, const uchar*)> primaryCheck([](const uchar* left, const uchar* right)->bool{
 								return DataType::compareArr(left, right, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
 									Global::globalTree->colNum, Comparator::Lt, true, true);
 							});
+							// master的主键被update之后,如果被修改的主键在slave中出现,则不能修改
+							std::vector<Table*> slaves;
+							std::vector<std::vector<uchar>> slaveFKIndex;
+							std::vector<Scanner*> slaveScanners;
+							uint slaveMask = 0;
+							for(int i = 0; i < table->FKSlaveNum(); i++){
+								for(int j = 0; j < MAX_COL_NUM; j++){
+									uchar slaveID = table->GetHeader()->fkSlave[i];
+									if(slaveID == TB_ID_NONE)
+										break;
+									if(!getBitFromLeft(slaveMask, slaveID)){
+										setBitFromLeft(slaveMask, slaveID);
+										uchar nameBuf[MAX_TABLE_NAME_LEN + 1] = {0};
+										Global::dbms->CurrentDatabase()->GetTableName(slaveID, nameBuf);
+										Table* slaveTable = Global::dbms->CurrentDatabase()->OpenTable((char*)nameBuf);
+										slaves.push_back(slaveTable);
+										std::vector<uchar> FKIndex;
+										for(int si = 0; si < slaveTable->FKMasterNum(); si++){
+											if(slaveTable->GetHeader()->fkMaster[si] == table->GetTableID())
+												FKIndex.push_back(si);
+										}
+										slaveFKIndex.push_back(FKIndex);
+										slaveScanners.push_back(slaveTable->GetScanner(nullptr));
+									}
+								}
+							}
 							bool ok = true;
 							while(scanner->NextRecord(&tmpRec)){
 								uchar* idxBuf = new uchar[primaryIdxLength]{0};
@@ -835,18 +863,51 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									pos += fieldLength;
 								}
 								tmpRec.FreeMemory();
-								if(!ok)
+								if(!ok){
 									break;
+								}
 								if(!primaryCheck.insert(idxBuf).second){
 									Global::PrimaryKeyConflict(T4.pos);
 									delete[] idxBuf;
 									ok = false;
 									break;
 								}
+								for(int i = 0; i < slaves.size(); i++){ // 每个slave table
+									uchar slaveBuf[DataType::calcConstantLength(slaves[i]->GetHeader()->attrType, slaves[i]->GetHeader()->attrLenth, slaves[i]->ColNum())] = {0};
+									uchar cmps[slaves[i]->ColNum()] = {0}; // Comparator::Any
+									for(auto idx_it = slaveFKIndex[i].begin(); idx_it != slaveFKIndex[i].end(); idx_it++){ // 每个使用该表的外键
+										memset(slaveBuf, 0, sizeof(slaveBuf));
+										const uchar* idxSeq = slaves[i]->GetHeader()->slaveKeyID[*idx_it];
+										int idxBufPos = 4; // 在idxBuf中游走
+										for(int j = 0; j < MAX_COL_NUM; j++){
+											uchar slaveCol = idxSeq[j];
+											int fieldLength = DataType::constantLengthOf(table->GetHeader()->attrType[j], table->GetHeader()->attrLenth[j]);
+											if(slaveCol == COL_ID_NONE)
+												break;
+											if(getBitFromLeft(*(uint*)idxBuf, j))
+												setBitFromLeft(*(uint*)slaveBuf, slaveCol);
+											else
+												memcpy(slaveBuf + slaves[i]->ColOffset(slaveCol), idxBuf + idxBufPos, fieldLength);
+											idxBufPos += fieldLength;
+										}
+										slaveScanners[i]->SetDemand(slaveBuf, slaves[i]->ColNum(), cmps);
+										if(slaveScanners[i]->NextRecord(&tmpRec)){
+											Global::ModifyReferenced(T1.pos, slaves[i]->GetTableName(), slaves[i]->GetHeader()->constraintName[*idx_it]);
+											tmpRec.FreeMemory();
+											delete[] idxBuf;
+											ok = false;
+											break;
+										}
+									}
+									if(!ok)
+										break;
+								}
 							}
 							delete primaryIdx;
 							for(auto check_it = primaryCheck.begin(); check_it != primaryCheck.end(); check_it++)
 								delete[] *check_it;
+							for(auto scanner_it = slaveScanners.begin(); scanner_it != slaveScanners.end(); scanner_it++)
+								delete *scanner_it;
 							if(!ok)
 								return false;
 						}
@@ -1528,39 +1589,242 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD colField
 					// check: 若field有not null限制,则其必须有default值或目标表为空;没有not null限制时,若有default,则插入default, 否则插入null
 					// rebuild table
 					printf("YACC: alter add col\n");
-					if(!Global::dbms->CurrentDatabase()){
-						Global::NoActiveDb($1.pos);
-						return false;
-					}
-					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
-						Global::TableNameTooLong($3.pos, $3.val.str.data());
-						return false;
-					}
-					Table* table = Global::dbms->CurrentDatabase()->OpenTable($3.val.str.data());
-					if(!table){
-						Global::NoSuchTable($3.pos, $3.val.str.data());
-						return false;
-					}
-					if($5.field.name.length() > MAX_ATTRI_NAME_LEN){
-						Global::FieldNameTooLong($5.pos);
-						return false;
-					}
-					if(table->IDofCol($5.field.name.data()) != COL_ID_NONE){
-						Global::FieldNameConflict($5.pos, $5.field.name.data());
-						return false;
-					}
-					// 有not null限制,没有默认值,表非空,不能执行
-					if(!$5.field.nullable && !$5.field.hasDefault && table->GetHeader()->recordNum == 0){
-						Global:NoDefaultValue($5.pos, $5.field.name.data());
-						return false;
-					}
-					// rebuild table
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($5);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T5 = typeVec[2];
+						if(!Global::dbms->CurrentDatabase()){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(!table){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(T5.field.name.length() > MAX_ATTRI_NAME_LEN){
+							Global::FieldNameTooLong(T5.pos);
+							return false;
+						}
+						if(table->IDofCol(T5.field.name.data()) != COL_ID_NONE){
+							Global::FieldNameConflict(T5.pos, T5.field.name.data());
+							return false;
+						}
+						if(table->ColNum() == MAX_COL_NUM){
+							Global::TooManyFields(T5.pos);
+							return false;
+						}
+						// 没有默认值,表非空,不能执行
+						if(!T5.field.hasDefault && table->GetHeader()->recordNum == 0){
+							Global::NoDefaultValue(T5.pos, (const uchar*)T5.field.name.data());
+							return false;
+						}
+						// rebuild table
+						Record tmpRec;
+						Header header = *table->GetHeader();
+						header.attrType[table->ColNum()] = T5.field.type;
+						header.attrLenth[table->ColNum()] = T5.field.length;
+						memcpy(header.attrName[table->ColNum()], T5.field.name.data(), T5.field.name.length());
+						if(T5.field.nullable)
+							setBitFromLeft(header.nullMask, table->ColNum());
+						else
+							clearBitFromLeft(header.nullMask, table->ColNum());
+						if(T5.field.hasDefault)
+							setBitFromLeft(header.defaultKeyMask, table->ColNum());
+						else
+							clearBitFromLeft(header.defaultKeyMask, table->ColNum());
+						header.recordLenth += DataType::lengthOf(T5.field.type, T5.field.length);
+						header.slotNum = PAGE_SIZE / header.recordLenth;
+						header.recordNum = header.exploitedNum = 0;
+						uchar* defaultValue = nullptr;
+						if(header.defaultKeyMask){
+							defaultValue = new uchar[header.recordLenth]{0};
+							RID dftRec(START_PAGE, 0);
+							table->GetRecord(dftRec, &tmpRec);
+							memcpy(defaultValue, tmpRec.GetData(), table->GetHeader()->recordLenth);
+							tmpRec.FreeMemory();
+							if(T5.field.defaultValue.type == DataType::NONE){
+								setBitFromLeft(*(uint*)defaultValue, table->ColNum());
+							}
+							if(T5.field.type == DataType::VARCHAR && T5.field.length > 255){
+								Global::dbms->CurrentDatabase()->InsertLongVarchar(T5.field.defaultValue.str.data(), T5.field.defaultValue.str.length(), &dftRec);
+								*(uint*)(defaultValue + table->GetHeader()->recordLenth) = dftRec.GetPageNum();
+								*(uint*)(defaultValue + table->GetHeader()->recordLenth + 4) = dftRec.GetSlotNum();
+							}
+							else
+								memcpy(defaultValue + table->GetHeader()->recordLenth, T5.field.defaultValue.bytes, header.recordLenth - table->GetHeader()->recordLenth);
+						}
+						Global::dbms->CurrentDatabase()->CreateTable(TMP_RESERVED_TABLE_NAME, &header, defaultValue);
+						if(defaultValue){
+							delete[] defaultValue;
+							defaultValue = nullptr;
+						}
+						Table* tmpTable = Global::dbms->CurrentDatabase()->OpenTable(TMP_RESERVED_TABLE_NAME);
+						assert(tmpTable);
+						uchar recBuf[header.recordLenth] = {0};
+						RID recRID;
+						std::vector<BplusTree*> indexes;
+						for(int i = 0; i < table->IdxNum(); i++){
+							BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[i]);
+							indexes.push_back(tree);
+						}
+						if(table->GetHeader()->primaryIndexPage)
+							indexes.push_back(new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage));
+						Scanner* scanner = table->GetScanner([](const Record& rec)->bool{return true;});
+						while(scanner->NextRecord(&tmpRec)){
+							assert(T5.field.hasDefault);
+							memset(recBuf, 0, sizeof(recBuf));
+							memcpy(recBuf, tmpRec.GetData(), table->GetHeader()->recordLenth);
+							if(T5.field.defaultValue.type == DataType::NONE)
+								setBitFromLeft(*(uint*)recBuf, table->ColNum());
+							else if(T5.field.type == DataType::VARCHAR && T5.field.length > 255){ // 尽管原来的记录中也可能有long varchar,但是并不影响
+								Global::dbms->CurrentDatabase()->InsertLongVarchar(T5.field.defaultValue.str.data(), T5.field.defaultValue.str.length(), &recRID);
+								*(uint*)(recBuf + table->GetHeader()->recordLenth) = recRID.GetPageNum();
+								*(uint*)(recBuf + table->GetHeader()->recordLenth + 4) = recRID.GetSlotNum();
+							}
+							else
+								memcpy(recBuf + table->GetHeader()->recordLenth, T5.field.defaultValue.bytes, header.recordLenth - table->GetHeader()->recordLenth);
+							tmpTable->InsertRecord(recBuf, &recRID);
+							// 更新所有索引
+							for(auto it = indexes.begin(); it != indexes.end(); it++){
+								uchar idxBuf[(*it)->header->recordLenth] = {0};
+								BplusTree::getIndexFromRecord((*it)->header, table, tmpRec.GetData(), idxBuf);
+								assert((*it)->SafeUpdate(idxBuf, *tmpRec.GetRid(), recRID));
+							}
+							tmpRec.FreeMemory();
+						}
+						for(auto it = indexes.begin(); it != indexes.end(); it++)
+							delete *it;
+						indexes.clear();
+						delete scanner;
+						Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+						Global::dbms->CurrentDatabase()->CloseTable(TMP_RESERVED_TABLE_NAME);
+						Global::dbms->CurrentDatabase()->DeleteTable(T3.val.str.data());
+						Global::dbms->CurrentDatabase()->RenameTable(TMP_RESERVED_TABLE_NAME, T3.val.str.data());
+						return true;
+					};
 				}
 			|	ALTER TABLE IDENTIFIER DROP IDENTIFIER
 				{
 					// check: primary / indexed / slave
 					// rebuild table
 					printf("YACC: alter drop col\n");
+					if(!Global::dbms->CurrentDatabase()){
+						Global::NoActiveDb($1.pos);
+						return false;
+					}
+					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::TableNameTooLong($3.pos);
+						return false;
+					}
+					if($5.val.str.length() > MAX_ATTRI_NAME_LEN){
+						Global::FieldNameTooLong($5.pos);
+						return false;
+					}
+					Table *table = Global::dbms->CurrentDatabase()->OpenTable($3.val.str.data());
+					if(!table){
+						Global::NoSuchTable($3.pos, $3.val.str.data());
+						return false;
+					}
+					uchar dropCol = table->IDofCol($5.val.str.data());
+					if(table->ColNum() == 1){
+						Global::DropOnlyCol($5.pos, $5.val.str.data());
+						return false;
+					}
+					if(dropCol == COL_ID_NONE){
+						Global::NoSuchField($5.pos, $5.val.str.data());
+						return false;
+					}
+					if(table->GetHeader()->primaryIndexPage){
+						for(int i = 0; i < MAX_COL_NUM; i++){
+							uchar colID = table->GetHeader()->primaryKeyID[i];
+							if(colID == COL_ID_NONE)
+								break;
+							if(colID == dropCol){
+								Global::DropPrimaryCol($5.pos, $5.val.str.data());
+								return false;
+							}
+						}
+					}
+					for(int i = 0; i < table->IdxNum(); i++){
+						for(int j = 0; j < MAX_COL_NUM; j++){
+							uchar colID = table->GetHeader()->indexID[i][j];
+							if(colID == COL_ID_NONE)
+								break;
+							if(colID == dropCol){
+								Global::DropIndexCol($5.pos, $5.val.str.data());
+								return false;
+							}
+						}
+					}
+					for(int i = 0; i < table->FKMasterNum(); i++){
+						for(int j = 0; j < MAX_COL_NUM; j++){
+							uchar colID = table->GetHeader()->slaveKeyID[i][j];
+							if(colID == COL_ID_NONE)
+								break;
+							if(colID == dropCol){
+								Global::DropFKCol($5.pos, $5.val.str.data());
+								return false;
+							}
+						}
+					}
+					// 可以drop
+					Header header = *table->GetHeader();
+					int moveNum = table->ColNum() - dropCol - 1;
+					header.nullMask = (header.nullMask & (0xffffffff << (32 - dropCol))) | ((header.nullMask & (0xffffffff >> (dropCol + 1))) << 1);
+					header.defaultKeyMask = (header.defaultKeyMask & (0xffffffff << (32 - dropCol))) | ((header.defaultKeyMask & (0xffffffff >> (dropCol + 1))) << 1);
+					memmove(header.attrType + dropCol, header.attrType + dropCol + 1, moveNum);
+					memmove(&header.attrLenth[dropCol], &header.attrLenth[dropCol + 1], sizeof(ushort) * moveNum);
+					memmove(header.attrName[dropCol], header.attrName[dropCol + 1], MAX_ATTRI_NAME_LEN * moveNum);
+					if(table->GetHeader()->primaryIndexPage){
+						bool changed = false;
+						for(int i = 0; i < MAX_COL_NUM; i++){
+							uchar &col = table->GetWriteHeader()->primaryKeyID[i];
+							if(col == COL_ID_NONE)
+								break;
+							if(col > dropCol){
+								changed = true;
+								col--;
+							}
+						}
+						if(changed){
+							BplusTree *tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage);
+							tree->UpdateColID(dropCol);
+							delete tree;
+						}
+					}
+					for(int i = 0; i < table->IdxNum(); i++){
+						bool changed = false;
+						for(int j = 0; j < MAX_COL_NUM; j++){
+							uchar &col = table->GetWriteHeader()->indexID[i][j];
+							if(col == COL_ID_NONE)
+								break;
+							if(col > dropCol){
+								changed = true;
+								col--;
+							}
+						}
+						if(changed){
+							BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[i]);
+							tree->UpdateColID(dropCol);
+							delete tree;
+						}
+					}
+					for(int i = 0; i < table->FKMasterNum(); i++){
+						for(int j = 0; i < MAX_COL_NUM; j++){
+							uchar &col = table->GetWriteHeader()->slaveKeyID[i][j];
+							if(col == COL_ID_NONE)
+								break;
+							if(col > dropCol)
+								col--;
+						}
+					}
+					// TODO
 				}
 			|	ALTER TABLE IDENTIFIER CHANGE colField
 				{

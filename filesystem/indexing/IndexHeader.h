@@ -22,7 +22,7 @@ class IndexHeader : public BaseHeader{
         // ! Maybe bidirectional linked list is not necessary. We can replace the backward pointer with FindSmallestRecord() and FindLargestRecord()
         uint internalCap, leafCap; // order of the internal node and leaf node
         uint rootPage; // the pageID of root node
-        // uint attrLenth[MAX_COL_NUM] = {0};
+        // ushort attrLenth[MAX_COL_NUM] = {0};
         // uchar attrType[MAX_COL_NUM] = {0};
         uchar tableName[MAX_TABLE_NAME_LEN] = {0}; // name of the table this index belongs to
         uchar indexColID[MAX_COL_NUM] = {0}; // the id of the indexed columns
@@ -32,9 +32,18 @@ class IndexHeader : public BaseHeader{
             memset(indexColID, COL_ID_NONE, MAX_COL_NUM);
         }
 
-        const static int lenth = sizeof(uint) * (6 + MAX_COL_NUM) +
-            MAX_TABLE_NAME_LEN + 
-            MAX_COL_NUM * 2;
+        const static int lenth = sizeof(uint) * 6 + // 6 uints
+            sizeof(ushort) * MAX_COL_NUM + // attrLenth
+            MAX_COL_NUM + // attrType
+            MAX_TABLE_NAME_LEN + // tableName
+            MAX_COL_NUM + // indexColID
+            1; // isUnique
+
+        const static int IndexColOffset =
+            sizeof(uint) * 6 + // 6  uints
+            sizeof(ushort) * MAX_COL_NUM + // attrLenth
+            MAX_COL_NUM + // attrType
+            MAX_TABLE_NAME_LEN; // tableName
         
         int GetLenth()override{
             return lenth;
@@ -49,10 +58,10 @@ class IndexHeader : public BaseHeader{
             uintPtr[4] = leafCap;
             uintPtr[5] = rootPage;
             uintPtr += 6;
-            memcpy(uintPtr, attrLenth, MAX_COL_NUM * sizeof(uint));
-            uintPtr += MAX_COL_NUM;
 
             uchar* charPtr = (uchar*)uintPtr;
+            memcpy(uintPtr, attrLenth, MAX_COL_NUM * sizeof(ushort));
+            charPtr += MAX_COL_NUM * sizeof(ushort);
             
             memcpy(charPtr, attrType, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;
@@ -75,10 +84,10 @@ class IndexHeader : public BaseHeader{
             leafCap = uintPtr[4];
             rootPage = uintPtr[5];
             uintPtr += 6;
-            memcpy(attrLenth, uintPtr, MAX_COL_NUM * sizeof(uint));
-            uintPtr += MAX_COL_NUM;
 
             uchar *charPtr = (uchar*)uintPtr;
+            memcpy(attrLenth, uintPtr, MAX_COL_NUM * sizeof(ushort));
+            charPtr += MAX_COL_NUM * sizeof(ushort);
 
             memcpy(attrType, charPtr, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;

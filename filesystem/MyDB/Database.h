@@ -60,8 +60,12 @@ class Database{
     char filePathBuf[MAX_DB_NAME_LEN + MAX_TABLE_NAME_LEN + 3 + 4 + 1] = ""; // 3 = ./***/***, 4 = ***-TMP, 1 = \0
 
     const char* getPath(const char* tableName){
-        sprintf(filePathBuf, "%s/%s", name, tableName);
+        sprintf(filePathBuf, "./%s/%s", name, tableName);
         return filePathBuf;
+    }
+
+    std::string strPath(const char* tableName){
+        return std::string(name ,strnlen(name, MAX_TABLE_NAME_LEN)) + "/" + std::string(tableName);
     }
 
     // 存储所有用户表
@@ -301,7 +305,8 @@ class Database{
                 memset(rec->GetData() + 4, 0, MAX_TABLE_NAME_LEN); // ? null word
                 memcpy(rec->GetData() + 4, newName, strlen(newName));
                 info->UpdateRecord(*rec->GetRid(), rec->GetData(), 0, 0, MAX_TABLE_NAME_LEN);
-                rename(getPath(oldName), getPath(newName));
+                // rename(getPath(oldName), getPath(newName)); // ! 这样写的话,第二个getPath回覆盖第一个getPath的结果
+                rename(strPath(oldName).data(), getPath(newName));
                 return true;
             }
             else
