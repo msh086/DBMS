@@ -26,6 +26,7 @@ class IndexHeader : public BaseHeader{
         // uchar attrType[MAX_COL_NUM] = {0};
         uchar tableName[MAX_TABLE_NAME_LEN] = {0}; // name of the table this index belongs to
         uchar indexColID[MAX_COL_NUM] = {0}; // the id of the indexed columns
+        uchar isUnique = 0; // whether this is a unique index
 
         IndexHeader(){
             memset(indexColID, COL_ID_NONE, MAX_COL_NUM);
@@ -60,6 +61,9 @@ class IndexHeader : public BaseHeader{
             charPtr += MAX_TABLE_NAME_LEN;
 
             memcpy(charPtr, indexColID, MAX_COL_NUM);
+            charPtr += MAX_COL_NUM;
+
+            *charPtr = isUnique;
         }
 
         void FromString(const void* src)override{
@@ -83,6 +87,9 @@ class IndexHeader : public BaseHeader{
             charPtr += MAX_TABLE_NAME_LEN;
 
             memcpy(indexColID, charPtr, MAX_COL_NUM);
+            charPtr += MAX_COL_NUM;
+
+            isUnique = *charPtr;
         }
 };
 

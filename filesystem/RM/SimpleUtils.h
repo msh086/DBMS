@@ -1,6 +1,7 @@
 #ifndef SIMPLEUTILS_H
 #define SIMPLEUTILS_H
 #include <cstring>
+#include <string>
 #include "../utils/pagedef.h"
 
 // 分离编译时,模板函数要在.h文件中实现
@@ -39,5 +40,7 @@ T readNumFromString(const char* src, int& pos){
 }
 
 float readFloatFromString(const char* src);
+
+std::string extractStr(const void* src, int maxLength);
 
 #endif

@@ -36,6 +36,8 @@ struct CmpUnit{
     }
 };
 
+class MultiScanner;
+
 /**
  * A scanner provides a read-only interface for getting records that meet certain requirements
  * A table can have multiple scanners
@@ -211,6 +213,7 @@ class Scanner{
             units.clear();
         }
         friend class Table;
+        friend class MultiScanner;
 };
 
 #endif

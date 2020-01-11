@@ -65,6 +65,98 @@ bool Table::RemoveIndex(const char* idxName){
     return true;
 }
 
+// ! 检查由parser完成
+void Table::RemovePrimaryKey(){
+    memset(header->primaryKeyID, COL_ID_NONE, MAX_COL_NUM);
+    memset(header->primaryIndexName, 0, MAX_INDEX_NAME_LEN);
+    if(header->primaryIndexPage){
+        BplusTree* tree = new BplusTree(db->idx, header->primaryIndexPage);
+        tree->DeleteTreeFromDisk();
+        delete tree;
+        header->primaryIndexPage = 0;
+    }
+    headerDirty = true;
+}
+
+bool Table::CreatePrimaryIndex(){
+    IndexHeader *idxHeader = new IndexHeader();
+    idxHeader->nullMask = 0;
+    idxHeader->isUnique = 1;
+    for(int pos = 0; pos < MAX_COL_NUM; pos++){
+        uchar colID = header->primaryKeyID[pos];
+        if(colID == COL_ID_NONE)
+            break;
+        idxHeader->attrType[pos] = header->attrType[colID];
+        idxHeader->attrLenth[pos] = header->attrLenth[colID];
+        idxHeader->indexColID[pos] = colID;
+    }
+    memcpy(idxHeader->tableName, tablename, MAX_TABLE_NAME_LEN);
+    BplusTree* tree = new BplusTree(db->idx, idxHeader);
+    // TODO: 检查重复
+    Scanner* scanner = GetScanner([](const Record& rec)->bool{return true;});
+    Record tmpRec;
+    uchar buf[tree->header->recordLenth] = {0};
+    bool ok = true;
+    while(ok && scanner->NextRecord(&tmpRec)){
+        memset(buf, 0, sizeof(buf));
+        BplusTree::getIndexFromRecord(tree->header, this, tmpRec.GetData(), buf);
+        if(!tree->Insert(buf, *tmpRec.GetRid()))
+            ok = false;
+        tmpRec.FreeMemory();
+    }
+    delete scanner;
+    if(ok)
+        header->primaryIndexPage = tree->TreeHeaderPage();
+    else{
+        memset(header->primaryKeyID, COL_ID_NONE, MAX_COL_NUM);
+        memset(header->primaryIndexName, 0, MAX_INDEX_NAME_LEN);
+        header->primaryIndexPage = 0;
+        tree->DeleteTreeFromDisk();
+    }
+    delete tree;
+    headerDirty = true;
+    return ok;
+}
+
+int Table::AddFKMaster(uchar masterID, std::vector<uchar> slaveKeys, const char* fkName, Table* master){
+    if(fkMasterCount == MAX_REF_SLAVE_TIME) // full
+        return 2;
+    for(int i = 0; i < fkMasterCount; i++){
+        if(identical((char*)header->constraintName[i], fkName, MAX_CONSTRAINT_NAME_LEN))
+            return 1; // existing fk with the same name
+    }
+    // check record conflicts
+    Scanner* scanner = GetScanner([](const Record&)->bool{return true;});
+    Record tmpRec;
+    BplusTree* tree = new BplusTree(db->idx, master->header->primaryIndexPage);
+    uchar buf[tree->header->recordLenth] = {0};
+    bool ok = true;
+    while(ok && scanner->NextRecord(&tmpRec)){
+        memset(buf, 0, sizeof(buf));
+        extractFields(this, tmpRec.GetData(), buf, slaveKeys);
+        if(!tree->RecExists(buf))
+            ok = false;
+        tmpRec.FreeMemory();
+    }
+    delete scanner;
+    delete tree;
+    if(!ok)
+        return 3;
+    // update constraint name
+    memcpy(header->constraintName[fkMasterCount], fkName, strnlen(fkName, MAX_CONSTRAINT_NAME_LEN));
+    // update master table ID
+    header->fkMaster[fkMasterCount] = masterID;
+    // update slave key ID
+    int slave_pos = 0;
+    for(auto slave_key_it = slaveKeys.begin(); slave_key_it != slaveKeys.end(); slave_key_it++, slave_pos++)
+        header->slaveKeyID[fkMasterCount][slave_pos] = *slave_key_it;
+    memset(header->slaveKeyID[fkMasterCount] + slave_pos, COL_ID_NONE, MAX_COL_NUM - slave_pos);
+    // sync
+    headerDirty = true;
+    fkMasterCount++;
+    return 0;
+}
+
 void Table::Print(){
     Record tmpRec;
     RID tmpRID(1, 0);
@@ -92,18 +184,20 @@ void Table::Print(){
     }
     Printer::PrintTable(table, 4, i + 1);
     // primary key
-    if(!header->primaryKeyMask)
+    if(header->primaryKeyID[0] == COL_ID_NONE)
         printf("Primary key: NONE\n");
     else{
-        printf("Primary key: (");
+        printf("Primary key: %.*s (", MAX_INDEX_NAME_LEN, header->primaryIndexName);
         bool prev = false;
         for(int i = 0; i < colCount; i++){
-            if(getBitFromLeft(header->primaryKeyMask, i)){
+            if(header->primaryKeyID[i] != COL_ID_NONE){
                 if(prev)
                     printf(", ");
-                printf("%.*s", MAX_ATTRI_NAME_LEN, header->attrName[i]);
+                printf("%.*s", MAX_ATTRI_NAME_LEN, header->attrName[header->primaryKeyID[i]]);
                 prev = true;
             }
+            else
+                break;
         }
         printf(")\n");
     }
@@ -114,7 +208,7 @@ void Table::Print(){
     for(int i = 0; i < fkMasterCount; i++){
         bool found = false;
         while(tables->NextRecord(&tmpRec)){
-            if(identical((char*)tmpRec.GetData(), (char*)header->attrName[header->fkMaster[i]], MAX_TABLE_NAME_LEN)){
+            if(tmpRec.GetRid()->SlotNum == header->fkMaster[i] + 1){
                 found = true;
                 break;
             }
@@ -122,20 +216,20 @@ void Table::Print(){
                 tmpRec.FreeMemory();
         }
         assert(found);
-        memcpy(tableNameBuf, tmpRec.GetData(), MAX_TABLE_NAME_LEN);
+        memcpy(tableNameBuf, tmpRec.GetData() + 4, MAX_TABLE_NAME_LEN); // mull word
+        tables->Reset();
+        tmpRec.FreeMemory();
         Table* master = db->OpenTable(tableNameBuf);
         assert(master);
 
         printf("Foreign key constraint %.*s", MAX_CONSTRAINT_NAME_LEN, header->constraintName[i]);
         for(int j = 0; j < MAX_COL_NUM && header->slaveKeyID[i][j] != COL_ID_NONE; j++)
             printf(" %.*s", MAX_ATTRI_NAME_LEN, header->attrName[header->slaveKeyID[i][j]]);
-        printf(" references");
+        printf(" references %.*s", MAX_TABLE_NAME_LEN, tableNameBuf);
         for(int j = 0; j < MAX_COL_NUM && master->header->primaryKeyID[j] != COL_ID_NONE; j++)
             printf(" %.*s", MAX_ATTRI_NAME_LEN, master->header->attrName[master->header->primaryKeyID[j]]);
         putchar('\n');
         db->CloseTable(tableNameBuf);
-        tmpRec.FreeMemory();
-        tables->Reset();
     }
     // index
     for(int i = 0; i < idxCount; i++){

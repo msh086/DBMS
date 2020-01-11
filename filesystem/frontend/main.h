@@ -326,27 +326,23 @@ struct ParsingHelper{
 		uchar cmps[table->ColNum()] = {0}; // Comparator::Any is 0
 		// FIXME: 现在的constantValue没有加上null word, 没有考虑is null/is not null, 没有考虑字段顺序,没有考虑一个字段上的多个约束
 		uchar constantValue[DataType::calcConstantLength(table->GetHeader()->attrType, table->GetHeader()->attrLenth, table->ColNum())];
-		const uchar* vals[table->ColNum()] = {0};
-		bool selection[table->ColNum()] = {0};
 		for(int i = 0; i < cmpUnitsNeeded; i++){ // i is the index for condition
 			memset(cmps, 0, sizeof(cmps)); // Comparator::Any
 			memset(constantValue, 0, sizeof(constantValue));
-			memset(vals, 0, sizeof(vals));
-			memset(selection, 0, sizeof(selection));
 			for(int j = 0; j < table->ColNum(); j++){
 				if(whereHelpersCol[j].size() > i){
-					selection[j] = true;
 					SelectHelper &tmp = whereHelpersCol[j][i];
 					cmps[j] = tmp.cmp;
 					if(tmp.val.type == DataType::NONE)
 						setBitFromLeft(*(uint*)constantValue, j);
-					else if(table->GetHeader()->attrType[j] == DataType::CHAR || table->GetHeader()->attrType[j] == DataType::VARCHAR)
-						vals[j] = (const uchar*)tmp.val.str.data();
+					else if(table->GetHeader()->attrType[j] == DataType::CHAR || table->GetHeader()->attrType[j] == DataType::VARCHAR){
+						int len = strnlen(tmp.val.str.data(), table->GetHeader()->attrLenth[j]);
+						memcpy(constantValue + table->ColOffset(j), tmp.val.str.data(), len);
+					}
 					else
-						vals[j] = tmp.val.bytes;
+						memcpy(constantValue + table->ColOffset(j), tmp.val.bytes, DataType::lengthOf(table->GetHeader()->attrType[j], table->GetHeader()->attrLenth[j]));
 				}
 			}
-			ParsingHelper::extractFields(table->GetHeader(), table->ColNum(), selection, vals, constantValue, true, false);
 			scanner->AddDemand(constantValue, table->ColNum(), cmps);
 		}
 		for(auto where_it = helpers.begin(); where_it != helpers.end(); where_it++)
@@ -354,53 +350,30 @@ struct ParsingHelper{
 		return scanner;			
 	}
 
-	/**
-	 * 抽取header中部分字段,构造记录,用于index的比较和where字句的scanner构造
-	 * colNum表示原始记录的字段数量
-	 * select表示哪些字段被抽取,是colNum大小的数组
-	 * valList是被抽取字段的值,是colNum大小的数组
-	 * dst是构造出的记录的存储地址
-	 * isConstant = true表示从常量记录中抽取;反之则表示从物理记录中抽取
-	 * compact = true表示压缩字段,即不会为未被选中的字段预留空间;反之则会预留空间
-	 * NOTE: 请在调用该函数前处理好null word并写入到dst前4个字节内
-	*/
-	static void extractFields(const BaseHeader* header, int colNum, bool* selection, const uchar** valList, uchar* dst, bool isConstant, bool compact){
-		int bufPos = 4;
-		for(int i = 0; i < colNum; i++){
-			uchar colType = header->attrType[i];
-			uchar colLength = header->attrLenth[i];
-			int fieldLength = isConstant ? DataType::constantLengthOf(colType, colLength) : DataType::lengthOf(colType, colLength);
-			if(selection[i]){
-				if(!getBitFromLeft(*(uint*)dst, i)) // 非null时才赋值常量值
-					if(isConstant && (colType == DataType::VARCHAR || colType == DataType::CHAR)){ // 如果是常量字符串,需要在后面补上'\0'
-						int len = strnlen((const char*)valList[i], colLength);
-						memcpy(dst + bufPos, valList[i], len);
-						memset(dst + bufPos + len, 0, fieldLength - len);
-					}
-					else
-						memcpy(dst + bufPos, valList[i], fieldLength);
-				bufPos += fieldLength;
-			}
-			else if(!compact) // 在compact模式下,未被选中的字段不占用空间
-				bufPos += fieldLength;
-		}
-	}
-
-	/**
-	 * 给出一个表和它的一个索引的header,从一条完整记录中抽取索引需要的字段
-	 * 
-	*/
-	static void getIndexFromRecord(const IndexHeader* idxHeader, Table* table, const uchar* record, uchar* dst){
-		bool selection[MAX_COL_NUM] = {0};
-		const uchar* vals[MAX_COL_NUM] = {0};
+	static std::string AnonymousFK(uchar masterTable, const uchar* slaveCols){
+		std::string ans;
+		ans.append("FK_");
+		auto IDtoChar = [](uchar id)->uchar{
+			if(id < 10)
+				return id + '0';
+			else
+				return 'A' + id - 10;
+		};
+		ans.push_back(IDtoChar(masterTable));
+		ans.push_back('_');
+		uint fkMask = 0;
 		for(int i = 0; i < MAX_COL_NUM; i++){
-			uchar targetCol = idxHeader->indexColID[i];
-			if(targetCol == COL_ID_NONE)
+			uchar tmpCol = slaveCols[i];
+			if(tmpCol == COL_ID_NONE)
 				break;
-			selection[targetCol] = true;
-			vals[targetCol] = record + table->ColOffset(targetCol);
+			setBitFromLeft(fkMask, tmpCol);
 		}
-		extractFields(table->GetHeader(), table->ColNum(), selection, vals, dst, false, true);
+		uchar* bytes = (uchar*)&fkMask;
+		for(int i = 0; i < 4; i++){
+			ans.push_back(IDtoChar(bytes[i] >> 8));
+			ans.push_back(IDtoChar(bytes[i] & 7));
+		}
+		return ans;
 	}
 
 	static void InsertIndexes(Table* table, const Record& rec){
@@ -408,7 +381,15 @@ struct ParsingHelper{
 		for(int i = 0; i < table->IdxNum(); i++){
 			memset(tmpBuf, 0, sizeof(tmpBuf));
 			BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[i]);
-			getIndexFromRecord(tree->header, table, rec.GetData(), tmpBuf);
+			BplusTree::getIndexFromRecord(tree->header, table, rec.GetData(), tmpBuf);
+			tree->SafeInsert(tmpBuf, *rec.GetRid());
+			delete tree;
+		}
+		// ! 不要忘了主键索引
+		if(table->GetHeader()->primaryIndexPage){
+			memset(tmpBuf, 0, sizeof(tmpBuf));
+			BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage);
+			BplusTree::getIndexFromRecord(tree->header, table, rec.GetData(), tmpBuf);
 			tree->SafeInsert(tmpBuf, *rec.GetRid());
 			delete tree;
 		}
@@ -430,10 +411,33 @@ struct ParsingHelper{
 			if(hasChange){
 				memset(tmpBuf, 0, sizeof(tmpBuf));
 				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[i]);
-				getIndexFromRecord(tree->header, table, oldRec, tmpBuf);
+				BplusTree::getIndexFromRecord(tree->header, table, oldRec, tmpBuf);
 				tree->SafeRemove(tmpBuf, *newRec.GetRid());
 				memset(tmpBuf, 0, sizeof(tmpBuf));
-				getIndexFromRecord(tree->header, table, newRec.GetData(), tmpBuf);
+				BplusTree::getIndexFromRecord(tree->header, table, newRec.GetData(), tmpBuf);
+				tree->SafeInsert(tmpBuf, *newRec.GetRid());
+				delete tree;
+			}
+		}
+		// 主键索引
+		if(table->GetHeader()->primaryKeyID[0] != COL_ID_NONE){
+			bool hasChange = false;
+			for(int i = 0; i < MAX_COL_NUM; i++){
+				uchar col = table->GetHeader()->primaryKeyID[i];
+				if(col == COL_ID_NONE)
+					break;
+				if(getBitFromLeft(updateMask, col)){
+					hasChange = true;
+					break;
+				}
+			}
+			if(hasChange){
+				memset(tmpBuf, 0, sizeof(tmpBuf));
+				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage);
+				BplusTree::getIndexFromRecord(tree->header, table, oldRec, tmpBuf);
+				tree->SafeRemove(tmpBuf, *newRec.GetRid());
+				memset(tmpBuf, 0, sizeof(tmpBuf));
+				BplusTree::getIndexFromRecord(tree->header, table, newRec.GetData(), tmpBuf);
 				tree->SafeInsert(tmpBuf, *newRec.GetRid());
 				delete tree;
 			}
@@ -451,8 +455,7 @@ struct ParsingHelper{
 };
 
 struct Debugger{
-	static bool debug(std::vector<Type> &typeVec){
-	}
+	static bool debug(std::vector<Type> &typeVec){}
 };
 
 #define YYSTYPE Type//把YYSTYPE(即yylval变量)重定义为struct Type类型，这样lex就能向yacc返回更多的数据了

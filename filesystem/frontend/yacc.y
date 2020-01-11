@@ -357,7 +357,8 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									Global::MasterFieldNotPrimary(T5.pos);
 									return false;
 								}
-								// update header, this fk constraint is anonymous!!!
+								std::string anonymous = ParsingHelper::AnonymousFK(master->GetTableID(), header.slaveKeyID[fkIndex]);
+								memcpy(header.constraintName[fkIndex], anonymous.data(), strnlen(anonymous.data(), MAX_CONSTRAINT_NAME_LEN));
 								header.fkMaster[fkIndex] = master->GetTableID();
 								fkIndex++;
 								Global::dbms->CurrentDatabase()->CloseTable(it->masterName.data());
@@ -412,8 +413,9 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							}
 							if(hasPrimary){ // create index on primary keys
 								Table* newTable = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
-								int idxRet = newTable->CreateIndexOn(primaryCols, PRIMARY_RESERVED_IDX_NAME);
-								assert(idxRet == 0);
+								assert(newTable->CreatePrimaryIndex());
+								// int idxRet = newTable->CreateIndexOn(primaryCols, PRIMARY_RESERVED_IDX_NAME);
+								// assert(idxRet == 0);
 								// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 							}
 						}
@@ -539,13 +541,11 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						// calc primary key const length
 						int idxRecLength = 4;
-						bool primarySelection[MAX_COL_NUM] = {0};
 						int primaryColCount = 0;
 						for(int i = 0; i < MAX_COL_NUM; i++){
 							uchar col_id = table->GetHeader()->primaryKeyID[i];
 							if(col_id != COL_ID_NONE){
 								primaryColCount++;
-								primarySelection[col_id] = true;
 								idxRecLength += DataType::constantLengthOf(table->GetHeader()->attrType[col_id], table->GetHeader()->attrLenth[col_id]);
 							}
 							else
@@ -555,7 +555,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						// TODO: 检查插入多个元素时,元素之间不满足主键约束的情况
 						BplusTree* primaryIdx = nullptr;
 						if(primaryColCount){
-							uint idxPage = table->GetPrimaryIndexPage();
+							uint idxPage = table->GetHeader()->primaryIndexPage;
 							assert(idxPage);
 							primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
 							Global::globalTree = primaryIdx;
@@ -563,22 +563,25 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								return DataType::compareArr(l, r, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
 									Global::globalTree->colNum, Comparator::Lt, true, true);
 							});
-							const uchar* vals[primaryColCount] = {0};
 							bool ok = true;
 							for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
 								uchar* buf = new uchar[idxRecLength]{0};
-								memset(vals, 0, sizeof(vals));
+								int bufPos = 4;
 								for(int i = 0; i < primaryColCount; i++){
 									uchar colID = primaryIdx->header->indexColID[i];
 									uchar colType = table->GetHeader()->attrType[colID];
+									ushort colLength = table->GetHeader()->attrLenth[colID];
+									int constantFieldLenth = DataType::constantLengthOf(colType, colLength);
 									if((*list_it)[colID].type == DataType::NONE)
 										setBitFromLeft(*(uint*)buf, colID);
-									else if(colType == DataType::CHAR || colType == DataType::VARCHAR)
-										vals[colID] = (const uchar*)(*list_it)[colID].str.data();
+									else if(colType == DataType::CHAR || colType == DataType::VARCHAR){
+										int len = strnlen((*list_it)[colID].str.data(), colLength);
+										memcpy(buf + bufPos, (*list_it)[colID].str.data(), len);
+									}
 									else
-										vals[colID] = (*list_it)[colID].bytes;
+										memcpy(buf + bufPos, (*list_it)[colID].bytes, constantFieldLenth);
+									bufPos += constantFieldLenth;
 								}
-								ParsingHelper::extractFields(table->GetHeader(), primaryColCount, primarySelection, vals, buf, true, true);
 								if(!primaryCheck.insert(buf).second){
 									Global::PrimaryKeyConflict(T5.pos);
 									ok = false;
@@ -606,33 +609,32 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								uchar masterName[MAX_TABLE_NAME_LEN + 1] = {0};
 								Global::dbms->CurrentDatabase()->GetTableName(table->GetHeader()->fkMaster[i], masterName);
 								Table* master = Global::dbms->CurrentDatabase()->OpenTable((char*)masterName);
-								uint idxPage = master->GetPrimaryIndexPage();
+								uint idxPage = master->GetHeader()->primaryIndexPage;
 								assert(idxPage);
 								BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
 								// variables used to build constant record
-								const uchar* vals[table->ColNum()] = {0};
-								bool selection[table->ColNum()] = {0};
 								int colCount = tree->colNum;
-								int constantLength = 4;
-								for(int i = 0;i < colCount; i++){
-									constantLength += DataType::constantLengthOf(tree->header->attrType[i], tree->header->attrLenth[i]);
-									selection[tree->header->indexColID[i]] = true;
-								}
+								int constantLength = DataType::calcConstantLength(tree->header->attrType, tree->header->attrLenth, colCount);
 								uchar constantRecord[constantLength] = {0};
 								// for every record to be inserted, check its primary constaint in master
 								for(auto record_it = TT.valLists.begin(); record_it != TT.valLists.end(); record_it++){
-									memset(vals, 0, sizeof(vals));
 									memset(constantRecord, 0, sizeof(constantRecord));
+									int bufPos = 4;
 									for(int i = 0; i < colCount; i++){ // No.i indexed field
 										uchar colID = tree->header->indexColID[i];
+										uchar colType = tree->header->attrType[i];
+										ushort colLength = tree->header->attrLenth[i];
+										int constantFieldLenth = DataType::constantLengthOf(colType, colLength);
 										if((*record_it)[colID].type == DataType::NONE)
 											setBitFromLeft(*(uint*)constantRecord, i);
-										else if(tree->header->attrType[i] == DataType::CHAR || tree->header->attrType[i] == DataType::VARCHAR)
-											vals[colID] = (const uchar*)(*record_it)[colID].str.data();
+										else if(colType == DataType::CHAR || colType == DataType::VARCHAR){
+											int len = strnlen((*record_it)[colID].str.data(), colLength);
+											memcpy(constantRecord + bufPos, (*record_it)[colID].str.data(), len);
+										}
 										else
-											vals[colID] = (*record_it)[colID].bytes;
+											memcpy(constantRecord + bufPos, (*record_it)[colID].bytes, constantFieldLenth);
+										bufPos += constantFieldLenth;
 									}
-									ParsingHelper::extractFields(table->GetHeader(), colCount, selection, vals, constantRecord, true, true);
 									if(!tree->SafeValueSearch(constantRecord, &tmpRID)){
 										Global::ForeignKeyNotFound(T5.pos, masterName);
 										delete tree;
@@ -793,7 +795,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						// check primary constraint
 						Record tmpRec;
 						if(primaryMask){
-							BplusTree* primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetPrimaryIndexPage());
+							BplusTree* primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage);
 							Global::globalTree = primaryIdx;
 							std::set<const uchar*, bool(*)(const uchar*, const uchar*)> primaryCheck([](const uchar* left, const uchar* right)->bool{
 								return DataType::compareArr(left, right, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
@@ -905,7 +907,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 										bufPos += constantLength;
 									}
 									tmpRec.FreeMemory();
-									BplusTree* masterIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, master->GetPrimaryIndexPage());
+									BplusTree* masterIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, master->GetHeader()->primaryIndexPage);
 									RID tmpRID;
 									if(!masterIdx->SafeValueSearch(idxBuf, &tmpRID)){
 										delete masterIdx;
@@ -1019,13 +1021,14 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								return false;
 							// TODO: use index where possible
 							uint whereMask = 0;
-							uchar rangeCol = COL_ID_NONE, idxID = INDEX_ID_NONE;
+							uchar rangeCol = COL_ID_NONE;
+							uint idxPage = 0;
 							std::vector<IndexHelper> idxHelpers[table->ColNum()];
 							if(ParsingHelper::CanUseIndex(table, whereHelpersCol, idxHelpers, whereMask, rangeCol)){
-								idxID = table->BestIndexFor(whereMask, rangeCol);
-								if(idxID != INDEX_ID_NONE){
+								idxPage = table->PageForBestIndex(whereMask, rangeCol);
+								if(idxPage != 0){
 									// TODO
-									BplusTree* index = new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->bpTreePage[idxID]);
+									BplusTree* index = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
 									int constantIdxLength = DataType::calcConstantLength(index->header->attrType, index->header->attrLenth, index->colNum);
 									uchar idxBuf[constantIdxLength] = {0};
 									uchar lowupBuf[constantIdxLength] = {0}; // 为了上下界都存在时使用
@@ -1093,10 +1096,10 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									}
 									table->PrintSelection(wantedCols, results);
 									delete index;
-								} // end: idxID != INDEX_ID_NONE
+								} // end: idxPage != 0
 							}
 							// 不能使用索引
-							if(idxID == INDEX_ID_NONE){
+							if(idxPage == 0){
 								// build scanner
 								Scanner* scanner = ParsingHelper::buildScanner(table, helpers, whereHelpersCol, cmpUnitsNeeded);
 								// Print
@@ -1232,8 +1235,16 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 										whereClauses[leftTableID].push_back(*where_it);
 										canBuildScanner[leftTableID] = true;
 									}
-									else
-										multiScanner.AddUnit(leftTableID, leftColID, rightTableID, rightColID, where_it->cmp);
+									else{
+										// 不做类型转换了...
+										if(tables[leftTableID]->GetHeader()->attrType[leftColID] == tables[rightTableID]->GetHeader()->attrType[rightColID] &&
+											tables[leftTableID]->GetHeader()->attrLenth[leftColID] == tables[rightTableID]->GetHeader()->attrLenth[rightColID])
+											multiScanner.AddUnit(leftTableID, leftColID, rightTableID, rightColID, where_it->cmp);
+										else{
+											Global::IncomparableFields(T6.pos, tables[leftTableID]->GetHeader()->attrName[leftColID], tables[rightTableID]->GetHeader()->attrName[rightColID]);
+											return false;
+										}
+									}
 								}
 								else{
 									whereClauses[leftTableID].push_back(*where_it);
@@ -1512,11 +1523,38 @@ IdxStmt		:	CREATE INDEX IDENTIFIER ON IDENTIFIER '(' IdList ')'
 				}
 			;
 
-AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
+AlterStmt	:	ALTER TABLE IDENTIFIER ADD colField
 				{
 					// check: 若field有not null限制,则其必须有default值或目标表为空;没有not null限制时,若有default,则插入default, 否则插入null
 					// rebuild table
 					printf("YACC: alter add col\n");
+					if(!Global::dbms->CurrentDatabase()){
+						Global::NoActiveDb($1.pos);
+						return false;
+					}
+					if($3.val.str.length() > MAX_TABLE_NAME_LEN){
+						Global::TableNameTooLong($3.pos, $3.val.str.data());
+						return false;
+					}
+					Table* table = Global::dbms->CurrentDatabase()->OpenTable($3.val.str.data());
+					if(!table){
+						Global::NoSuchTable($3.pos, $3.val.str.data());
+						return false;
+					}
+					if($5.field.name.length() > MAX_ATTRI_NAME_LEN){
+						Global::FieldNameTooLong($5.pos);
+						return false;
+					}
+					if(table->IDofCol($5.field.name.data()) != COL_ID_NONE){
+						Global::FieldNameConflict($5.pos, $5.field.name.data());
+						return false;
+					}
+					// 有not null限制,没有默认值,表非空,不能执行
+					if(!$5.field.nullable && !$5.field.hasDefault && table->GetHeader()->recordNum == 0){
+						Global:NoDefaultValue($5.pos, $5.field.name.data());
+						return false;
+					}
+					// rebuild table
 				}
 			|	ALTER TABLE IDENTIFIER DROP IDENTIFIER
 				{
@@ -1571,27 +1609,223 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD field
 						return true;
 					};
 				}
-			|	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' colList ')'
+			|	ALTER TABLE IDENTIFIER ADD PRIMARY KEY '(' IdList ')'
 				{
 					// check: any conflict?
 					// build: primary index
 					printf("YACC: alter add primary\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($8);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T8 = typeVec[2];
+						if(!Global::dbms->CurrentDatabase()){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						if(ParsingHelper::TableNameReserved(T3.val.str.data())){
+							Global::TableNameReserved(T3.pos, T3.val.str.data());
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(!table){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(table->GetHeader()->primaryIndexPage != 0){
+							Global::MultiplePrimaryKey(T1.pos);
+							return false;
+						}
+						std::vector<uchar> colIDs;
+						for(auto it = T8.IDList.begin(); it != T8.IDList.end(); it++){
+							if(it->length() > MAX_ATTRI_NAME_LEN){
+								Global::FieldNameTooLong(T8.pos);
+								return false;
+							}
+							uchar colID = table->IDofCol(it->data());
+							if(colID == COL_ID_NONE){
+								Global::NoSuchField(T8.pos, it->data());
+								return false;
+							}
+							if(getBitFromLeft(table->GetHeader()->nullMask, colID)){
+								Global::NullPrimaryKey(T8.pos);
+								return false;
+							}
+							colIDs.push_back(colID);
+						}
+						assert(table->AddPrimaryKey(colIDs, PRIMARY_RESERVED_IDX_NAME));
+						if(!table->CreatePrimaryIndex()){
+							Global::PrimaryKeyConflict(T1.pos);
+							return false;
+						}
+						return true;
+					};
 				}
 			|	ALTER TABLE IDENTIFIER DROP PRIMARY KEY
 				{
 					// check: any slaves?
 					// clean: primary index
 					printf("YACC: alter drop primary\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1];
+						if(!Global::dbms->CurrentDatabase()){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(!table){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						if(table->FKSlaveNum()){
+							Global::PrimaryConstraintReferenced(T1.pos, table->GetHeader()->primaryIndexName);
+							return false;
+						}
+						table->RemovePrimaryKey();
+						return true;
+					};
 				}
-			|	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' colList ')' REFERENCES IDENTIFIER '(' colList ')'
+			|	ALTER TABLE IDENTIFIER ADD CONSTRAINT IDENTIFIER FOREIGN KEY '(' IdList ')' REFERENCES IDENTIFIER '(' IdList ')'
 				{
 					// check: any conflict?
 					printf("YACC: alter add foreign\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($6);
+					Global::types.push_back($10);
+					Global::types.push_back($13);
+					Global::types.push_back($15);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T6 = typeVec[2], &T10 = typeVec[3], &T13 = typeVec[4], &T15 = typeVec[5];
+						if(!Global::dbms->CurrentDatabase()){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						if(T13.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T13.pos);
+							return false;
+						}
+						if(T6.val.str.length() > MAX_CONSTRAINT_NAME_LEN){
+							Global::ConstraintNameTooLong(T6.pos);
+							return false;
+						}
+						Table* slave = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(!slave){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						Table* master = Global::dbms->CurrentDatabase()->OpenTable(T13.val.str.data());
+						if(!master){
+							Global::NoSuchTable(T13.pos, T13.val.str.data());
+							return false;
+						}
+						std::vector<uchar> slaveCols;
+						if(T10.IDList.size() != T15.IDList.size()){
+							Global::MasterFieldNumNotMatch(T15.pos);
+							return false;
+						}
+						for(auto it = T10.IDList.begin(); it != T10.IDList.end(); it++){
+							if(it->length() > MAX_ATTRI_NAME_LEN){
+								Global::FieldNameTooLong(T10.pos);
+								return false;
+							}
+							uchar colID = slave->IDofCol(it->data());
+							if(colID == COL_ID_NONE){
+								Global::NoSuchField(T10.pos, it->data());
+								return false;
+							}
+							slaveCols.push_back(colID);
+						}
+						int primaryPos = 0;
+						for(auto it = T15.IDList.begin(); it != T15.IDList.end(); it++, primaryPos++){
+							if(it->length() > MAX_ATTRI_NAME_LEN){
+								Global::FieldNameTooLong(T15.pos);
+								return false;
+							}
+							uchar colID = master->IDofCol(it->data());
+							if(colID == COL_ID_NONE){
+								Global::NoSuchField(T15.pos, it->data());
+								return false;
+							}
+							if(master->GetHeader()->primaryKeyID[primaryPos] != colID){
+								Global::MasterFieldNotPrimary(T15.pos);
+								return false;
+							}
+							if(master->GetHeader()->attrType[colID] != slave->GetHeader()->attrType[slaveCols[primaryPos]] || 
+								master->GetHeader()->attrLenth[colID] != slave->GetHeader()->attrLenth[slaveCols[primaryPos]]){
+								Global::MasterTypeNotMatch(T15.pos);
+								return false;
+							}
+						}
+						int code = slave->AddFKMaster(master->GetTableID(), slaveCols, T6.val.str.data(), master);
+						if(code == 1){
+							Global::FKNameConflict(T6.pos, T6.val.str.data());
+							return false;
+						}
+						if(code == 2){
+							Global::TooManySlaveTime(T6.pos);
+							return false;
+						}
+						if(code == 3){
+							Global::ForeignKeyNotFound(T6.pos, (const uchar*)T13.val.str.data());
+							return false;
+						}
+						master->AddFKSlave(slave->GetTableID());
+						return true;
+					};
 				}
 			|	ALTER TABLE IDENTIFIER DROP FOREIGN KEY IDENTIFIER
 				{
 					// easy
 					printf("YACC: alter drop foreign\n");
+					Global::types.push_back($1);
+					Global::types.push_back($3);
+					Global::types.push_back($7);
+					Global::action = [](std::vector<Type> &typeVec){
+						Type &T1 = typeVec[0], &T3 = typeVec[1], &T7 = typeVec[2];
+						if(!Global::dbms->CurrentDatabase()){
+							Global::NoActiveDb(T1.pos);
+							return false;
+						}
+						if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+							Global::TableNameTooLong(T3.pos);
+							return false;
+						}
+						if(T7.val.str.length() > MAX_CONSTRAINT_NAME_LEN){
+							Global::ConstraintNameTooLong(T7.pos);
+							return false;
+						}
+						Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+						if(!table){
+							Global::NoSuchTable(T3.pos, T3.val.str.data());
+							return false;
+						}
+						uchar masterID = TB_ID_NONE;
+						if(!table->RemoveFKMaster(T7.val.str.data(), masterID)){
+							Global::NoSuchFK(T7.pos, T7.val.str.data());
+							return false;
+						}
+						uchar nameBuf[MAX_TABLE_NAME_LEN + 1] = {0};
+						Global::dbms->CurrentDatabase()->GetTableName(masterID, nameBuf);
+						Table* master = Global::dbms->CurrentDatabase()->OpenTable((char*)nameBuf);
+						assert(master);
+						assert(master->RemoveFKSlave(table->GetTableID()));
+						return true;
+					};
 				}
 			;
 			// we do not support:

@@ -434,35 +434,12 @@ class Table{
          * ! Unchecked: primary key
          * TODO: conflicts with existing records
         */
-        int AddFKMaster(uchar masterID, std::vector<uchar> slaveKeys, uint masterKeys, const char* fkName){
-            if(fkMasterCount == MAX_REF_SLAVE_TIME) // full
-                return 2;
-            headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
-            for(int i = 0; i < fkMasterCount; i++){
-                if(identical((char*)header->constraintName[i], fkName, MAX_CONSTRAINT_NAME_LEN))
-                    return 1; // existing fk with the same name
-            }
-            // update constraint name
-            memcpy(header->constraintName[fkMasterCount], fkName, strnlen(fkName, MAX_CONSTRAINT_NAME_LEN));
-            // update master table ID
-            header->fkMaster[fkMasterCount] = masterID;
-            // // update master key ID
-            // header->masterKeyID[fkMasterCount] = masterKeys;
-            // update slave key ID
-            int slave_pos = 0;
-            for(auto slave_key_it = slaveKeys.begin(); slave_key_it != slaveKeys.end(); slave_key_it++)
-                header->slaveKeyID[fkMasterCount][slave_pos] = *slave_key_it;
-            memset(header->slaveKeyID[fkMasterCount] + slave_pos, COL_ID_NONE, MAX_COL_NUM - slave_pos);
-            // sync
-            headerDirty = true;
-            fkMasterCount++;
-            return 0;
-        }
+        int AddFKMaster(uchar masterID, std::vector<uchar> slaveKeys, const char* fkName, Table* master);
 
         /**
          * Remove foreign constraint master, return if success
         */
-        bool RemoveFKMaster(const char* fkName){
+        bool RemoveFKMaster(const char* fkName, uchar& masterID){
             headerBuf = bpm->reusePage(fid, 0, headerIdx, headerBuf);
             // uchar* fkPart = headerBuf + Header::fkOffset + MAX_REF_SLAVE_TIME * 9;
             int pos = 0;
@@ -472,15 +449,13 @@ class Table{
             }
             if(pos == fkMasterCount) // all is checked
                 return false;
+            masterID = header->fkMaster[pos];
             // update fk masters: type uchar[]
             memcpy(header->constraintName[pos], header->constraintName[pos + 1], (fkMasterCount - pos - 1) * MAX_CONSTRAINT_NAME_LEN);
             memset(header->constraintName[fkMasterCount - 1], 0, MAX_CONSTRAINT_NAME_LEN);
             // update master ID, type: uchar
             memcpy(&header->fkMaster[pos], &header->fkMaster[pos + 1], fkMasterCount - pos - 1);
             header->fkMaster[fkMasterCount - 1] = TB_ID_NONE;
-            // // update master key ID, type: uint
-            // memcpy(&header->masterKeyID[pos], &header->masterKeyID[pos + 1], (fkMasterCount - pos - 1) * sizeof(uint));
-            // header->masterKeyID[fkMasterCount - 1] = 0;
             // update slave key ID, type: uint
             memcpy(header->slaveKeyID[pos], header->slaveKeyID[pos + 1], (fkMasterCount - pos - 1) * MAX_COL_NUM);
             memset(header->slaveKeyID[fkMasterCount - 1], 0, MAX_COL_NUM);
@@ -538,14 +513,45 @@ class Table{
          * 且存在索引(c1, c2, ..., ck, ck+1, ...)
          * 如何从where子句中获得c1, c2, ..., ck由parser负责
         */
-        uchar BestIndexFor(uint eqColMask, uchar rangeCol){
-            uchar ans = INDEX_ID_NONE;
+        uint PageForBestIndex(uint eqColMask, uchar rangeCol){
+            uint ans = 0;
             int minUnusedLength = MAX_COL_NUM * 65535;
             int eqColCount = 0;
             uint copy = eqColMask;
             while(copy){ // 索引列较少时性能比暴力法好
                 eqColCount++;
                 copy &= copy - 1;
+            }
+            if(header->primaryKeyID[0] != COL_ID_NONE){
+                bool ok = true;
+                for(int i = 0; i < eqColCount; i++){
+                    uchar colID = header->primaryKeyID[i];
+                    if(colID == COL_ID_NONE || !getBitFromLeft(eqColMask, colID)){
+                        ok = false;
+                        break;
+                    }
+                }
+                if(ok && rangeCol != COL_ID_NONE){
+                    uchar colID = header->primaryKeyID[eqColCount];
+                    if(colID == COL_ID_NONE || colID != rangeCol)
+                        ok = false;
+                }
+                if(ok){
+                    int tmpLength = 0;
+                    for(int i = rangeCol == COL_ID_NONE ? eqColCount : eqColCount + 1; i < MAX_COL_NUM; i++){
+                        uchar colID = header->primaryKeyID[i];
+                        if(colID == COL_ID_NONE)
+                            break;
+                        else
+                            tmpLength += DataType::constantLengthOf(header->attrType[colID], header->attrLenth[colID]);
+                    }
+                    if(tmpLength < minUnusedLength){
+                        minUnusedLength = tmpLength;
+                        ans = header->primaryIndexPage;
+                        if(tmpLength == 0)
+                            return ans;
+                    }
+                }
             }
             for(int i = 0; i < idxCount; i++){ // 第i个索引
                 bool ok = true;
@@ -573,7 +579,7 @@ class Table{
                     }
                     if(tmpLength < minUnusedLength){
                         minUnusedLength = tmpLength;
-                        ans = i;
+                        ans = header->bpTreePage[i];
                         if(tmpLength == 0)
                             break;
                     }
@@ -632,7 +638,7 @@ class Table{
          * Checked: name conflict, not more room, cols illegal
          * ? 索引列的顺序是有意义的,不能用位图表示
         */
-        int CreateIndexOn(std::vector<uchar>, const char* idxName);
+        int CreateIndexOn(std::vector<uchar> cols, const char* idxName);
 
         /**
          * Remove index by name
@@ -640,13 +646,25 @@ class Table{
         */
         bool RemoveIndex(const char* idxName);
 
-        uint GetPrimaryIndexPage(){
-            for(int i = 0; i < idxCount; i++){
-                if(identical((char*)header->indexName[i], PRIMARY_RESERVED_IDX_NAME, MAX_INDEX_NAME_LEN))
-                    return header->bpTreePage[i];
-            }
-            return 0;
+        /**
+         * 添加主键,但并不为其创建索引
+        */
+        bool AddPrimaryKey(std::vector<uchar> cols, const char* name){
+            if(header->primaryKeyID[0] != COL_ID_NONE)
+                return false;
+            for(int i = 0; i < cols.size(); i++)
+                header->primaryKeyID[i] = cols[i];
+            if(name != nullptr)
+                memcpy(header->primaryIndexName, name, strnlen(name, MAX_INDEX_NAME_LEN));
+            else
+                memcpy(header->primaryIndexName, PRIMARY_RESERVED_IDX_NAME, strlen(PRIMARY_RESERVED_IDX_NAME));
+            headerDirty = true;
+            return true;
         }
+
+        bool CreatePrimaryIndex();
+
+        void RemovePrimaryKey();
 
         int FileID(){
             return fid;
@@ -675,8 +693,45 @@ class Table{
             return fkMasterCount;
         }
 
+        int FKSlaveNum(){
+            return fkSlaveCount;
+        }
+
         int ColOffset(int i){
             return offsets[i];
+        }
+
+        const char* GetTableName(){
+            return tablename;
+        }
+
+        /**
+         * src是table中的一条记录,从src中按照cols指定的顺序抽取字段,并构造为新的记录,dst
+         * 用于抽取索引列或者外键列
+        */
+        static void extractFields(Table* table, const uchar* src, uchar* dst, const uchar* cols){
+            int bufPos = 4;
+            for(int i = 0; i < MAX_COL_NUM; i++){
+                uchar colID = cols[i];
+                if(colID == COL_ID_NONE)
+                    break;
+                uchar colType = table->header->attrType[colID];
+                ushort colLength = table->header->attrLenth[colID];
+                int memoryLenth = DataType::lengthOf(colType, colLength);
+                if(getBitFromLeft(*(const uint*)src, colID))
+                    setBitFromLeft(*(uint*)dst, i);
+                else
+                    memcpy(dst + bufPos, src + table->ColOffset(colID), memoryLenth);
+                bufPos += memoryLenth;
+            }
+        }
+
+        static void extractFields(Table* table, const uchar* src, uchar* dst, std::vector<uchar> cols){
+            uchar colArr[cols.size() + 1];
+            for(int i = 0; i < cols.size(); i++)
+                colArr[i] = cols[i];
+            colArr[cols.size()] = COL_ID_NONE;
+            extractFields(table, src, dst, colArr);
         }
 
         void Print();

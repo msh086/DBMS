@@ -19,6 +19,8 @@ class Header : public BaseHeader{
         uint primaryKeyMask = 0; // ! unused. Use primaryKeyID instead, the corresponsing primary constraint name is the same as primary index name
         uint foreignKeyMask = 0; // ! unused. Use fkMaster, masterKeyID, slaveKeyID, constraintName instead
         uint defaultKeyMask = 0; // The template record for `default` is always stored as (1, 0) and is invisible & inchangable by query
+        // 主键索引b+树的header页
+        uint primaryIndexPage = 0;
         // For attrLenth, if we store varchar locally, each element will take a uint
         // If we store varchar as a pointer to their real location, each element can be a char
         // For varchar no longer than 255 bytes, they can be stored in-place like chars, the length of the attribute is its actual size(0~255)
@@ -34,6 +36,8 @@ class Header : public BaseHeader{
         uchar attrName[MAX_COL_NUM][MAX_ATTRI_NAME_LEN] = {{0}};
         // 主键的列序号, 主键名称直接使用索引名称
         uchar primaryKeyID[MAX_COL_NUM] = {0};
+        // 专门存放主键索引的名称
+        uchar primaryIndexName[MAX_INDEX_NAME_LEN] = {0};
         /* 外键约束 */
         // 引用别的表的ID
         uchar fkMaster[MAX_REF_SLAVE_TIME] = {0}; // 用表的id代替表名来节省空间
@@ -63,11 +67,12 @@ class Header : public BaseHeader{
         }
 
         /* header的长度 */
-        const static int lenth = sizeof(uint) * 8 + // 8 * uint
+        const static int lenth = sizeof(uint) * 9 + // 8 * uint + primaryIndexPage
             sizeof(ushort) * MAX_COL_NUM + // attrLenth
             MAX_COL_NUM + // attrType
             MAX_COL_NUM * MAX_ATTRI_NAME_LEN + // attrName
             MAX_COL_NUM + // primaryKeyID
+            MAX_INDEX_NAME_LEN + // primaryIndexName
             MAX_REF_SLAVE_TIME + // fkMaster
             MAX_REF_SLAVE_TIME * MAX_COL_NUM + // slaveKeyID
             MAX_REF_SLAVE_TIME * MAX_CONSTRAINT_NAME_LEN + // constraintName
@@ -77,11 +82,12 @@ class Header : public BaseHeader{
             MAX_INDEX_NUM * sizeof(uint); // bpTreePage
         
         /* 外键部分的offset */
-        const static int fkOffset = sizeof(uint) * 8 + // 8 * uint
+        const static int fkOffset = sizeof(uint) * 9 + // 8 * uint + primaryIndexPage
             sizeof(ushort) * MAX_COL_NUM + // attrLenth
             MAX_COL_NUM + // attrType
             MAX_COL_NUM * MAX_ATTRI_NAME_LEN + // attrName
-            MAX_COL_NUM; // primaryKeyID
+            MAX_COL_NUM + // primaryKeyID
+            MAX_TABLE_NAME_LEN; // primaryIndexName
         
         /* 索引部分的offset */
         const static int idxOffset = fkOffset +
@@ -104,7 +110,8 @@ class Header : public BaseHeader{
             uintPtr[5] = primaryKeyMask;
             uintPtr[6] = foreignKeyMask;
             uintPtr[7] = defaultKeyMask;
-            uintPtr += 8;
+            uintPtr[8] = primaryIndexPage;
+            uintPtr += 9;
 
             uchar* charPtr = (uchar*)uintPtr; // updated for ushort
             memcpy(charPtr, attrLenth, MAX_COL_NUM * sizeof(ushort));
@@ -118,6 +125,9 @@ class Header : public BaseHeader{
 
             memcpy(charPtr, primaryKeyID, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;
+
+            memcpy(charPtr, primaryIndexName, MAX_INDEX_NAME_LEN);
+            charPtr += MAX_INDEX_NAME_LEN;
             // foreign key part
             memcpy(charPtr, fkMaster, MAX_REF_SLAVE_TIME);
             charPtr += MAX_REF_SLAVE_TIME;
@@ -149,7 +159,8 @@ class Header : public BaseHeader{
             primaryKeyMask = uintPtr[5];
             foreignKeyMask = uintPtr[6];
             defaultKeyMask = uintPtr[7];
-            uintPtr += 8;
+            primaryIndexPage = uintPtr[8];
+            uintPtr += 9;
 
             uchar *charPtr = (uchar*)uintPtr; // updated for ushort
             memcpy(attrLenth, charPtr, MAX_COL_NUM * sizeof(ushort));
@@ -163,6 +174,9 @@ class Header : public BaseHeader{
 
             memcpy(primaryKeyID, charPtr, MAX_COL_NUM);
             charPtr += MAX_COL_NUM;
+
+            memcpy(primaryIndexName, charPtr, MAX_INDEX_NAME_LEN);
+            charPtr += MAX_INDEX_NAME_LEN;
             // foreign key part
             memcpy(fkMaster, charPtr, MAX_REF_SLAVE_TIME);
             charPtr += MAX_REF_SLAVE_TIME;

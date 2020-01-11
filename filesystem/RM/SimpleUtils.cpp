@@ -36,3 +36,7 @@ float readFloatFromString(const char* src){
     }
     return ans;
 }
+
+std::string extractStr(const void* src, int maxLength){
+    return std::string((char*)src, strnlen((char*)src, maxLength));
+}

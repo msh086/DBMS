@@ -266,16 +266,25 @@ class BplusTree{
         IndexHeader* header = nullptr;
         BplusTreeNode* root = nullptr;
         int colNum = 0;
-        void Insert(const uchar* data, const RID& rid);
+        bool Insert(const uchar* data, const RID& rid);
         bool Search(const uchar* data, const RID& rid); // returns true iff both data and rid match
         void Remove(const uchar* data, const RID& rid);
         bool ValueSearch(const uchar* data, RID* rid, int cmpColNum = -1); // returns true iff data matches, store found RID in rid
         void ValueSelect(int eqCols, const uchar* begin, uchar lowerCmp, const uchar* end, uchar upperCmp, std::vector<RID> &results);
+
+        bool RecExists(const uchar* data){
+            BplusTreeNode* node = nullptr;
+            int pos = -1;
+            bool res = _search(data, node, pos);
+            ClearAndWriteBackOpenedNodes();
+            return res;
+        }
         
         // Memory-safe methods for Insert, Search and Remove
-        void SafeInsert(const uchar* data, const RID& rid){
-            Insert(data, rid);
+        bool SafeInsert(const uchar* data, const RID& rid){
+            bool res = Insert(data, rid);
             ClearAndWriteBackOpenedNodes();
+            return res;
         }
 
         void SafeRemove(const uchar* data, const RID& rid){
@@ -337,6 +346,25 @@ class BplusTree{
             header = nullptr;
         }
 
+        /**
+         * 给出一个表和它的一个索引的header,从一条完整记录中抽取索引需要的字段
+         * 
+        */
+        static void getIndexFromRecord(const IndexHeader* idxHeader, Table* table, const uchar* record, uchar* dst){
+            int bufPos = 4;
+            for(int i = 0; i < MAX_COL_NUM; i++){
+                uchar refCol = idxHeader->indexColID[i];
+                if(refCol == COL_ID_NONE)
+                    break;
+                int fieldLen = DataType::lengthOf(idxHeader->attrType[i], idxHeader->attrLenth[i]);
+                if(getBitFromLeft(*(const uint*)record, refCol))
+                    setBitFromLeft(*(uint*)dst, i);
+                else
+                    memcpy(dst + bufPos, record + table->ColOffset(refCol), fieldLen);
+                bufPos += fieldLen;
+            }
+        }
+
         ~BplusTree(){
             if(header)
                 delete header;
@@ -346,6 +374,7 @@ class BplusTree{
             }
         }
 
+#ifdef DEBUG
         struct Checker{
             uint page;
             uint parentPage;
@@ -372,7 +401,6 @@ class BplusTree{
                 nextLeaf = N;
             }
         };
-#ifdef DEBUG
         static bool errorSign;
         // skip null word and get the real value
         int extractInt(void* src){

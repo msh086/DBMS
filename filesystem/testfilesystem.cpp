@@ -35,24 +35,14 @@
 
 using namespace std;
 int main() {
-	// char filename[30] = "../../testfile.txt";
-	// std::ifstream fin;
-	// fin.open(filename);
-	// if(fin.fail())
-	// 	return 1;
-	// char buffer[200] = "";
-	// char c;
-	// while(char c = fin.get()){
-	// 	if(c == EOF)
-	// 		break;
-	// 	printf("%c", c);
-	// }
-	// // while(fin.getline(buffer, 200)){
-	// // 	printf("line with length of %d: %.*s\n", strnlen(buffer, 200), 200, buffer);
-	// // 	memset(buffer, 0, 200);
-	// // }
-	// fin.close();
-	// return 0;
+	std::ofstream fout;
+	fout.open("test.txt");
+	// 一页的bitmap大小为65536,至少测试三页
+	for(int i = 0; i < 3 * 65536; i++){
+		fout << i << "|\n";
+	}
+	fout.close();
+	return 0;
 
 
 	DBMS::Instance()->Init();

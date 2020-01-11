@@ -115,8 +115,11 @@ class Global{
 		}
 
 		// constraints
-		static void MultiplePrimaryKey(int pos){
-			newError(pos, "Multiple primary key declaration");
+		static void NoSuchFK(int pos, const char* name){
+			newError(pos, format("No FK named %s", name));
+		}
+		static void FKNameConflict(int pos, const char* name){
+			newError(pos, format("FK constraint named %s already exists", name));
 		}
 		static void TooManySlaveTime(int pos){
 			newError(pos, format("A table can reference other tables in foreign key constraint no more than %d times", MAX_REF_SLAVE_TIME));
@@ -133,17 +136,26 @@ class Global{
 		static void ForeignKeyNotFound(int pos, const uchar* name){
 			newError(pos, format("Key combination not found in foreign key master table %s", name));
 		}
+		static void MasterTypeNotMatch(int pos){
+			newError(pos, "Fields in slave table should have identical types as primary keys in master table");
+		}
+		static void MasterFieldNumNotMatch(int pos){
+			newError(pos, "Slave field num not equal to master primary field num");
+		}
+		static void MultiplePrimaryKey(int pos){
+			newError(pos, "Multiple primary key declaration");
+		}
 		static void PrimaryKeyConflict(int pos){
 			newError(pos, "Primary key conflict");
 		}
 		static void NullPrimaryKey(int pos){
 			newError(pos, "Primary key cannot be null");
 		}
-		static void MasterTypeNotMatch(int pos){
-			newError(pos, "Fields in slave table should have identical types as primary keys in master table");
+		static void PrimaryConstraintReferenced(int pos, const uchar* primaryName){
+			newError(pos, format("Primary constraint %.*s is referenced by foreign key constraint, cannot remove", MAX_INDEX_NAME_LEN, primaryName));
 		}
-		static void MasterFieldNumNotMatch(int pos){
-			newError(pos, "Slave field num not equal to master primary field num");
+		static void ConstraintNameTooLong(int pos){
+			newError(pos, format("Constraint name shoubld be no longer than %d", MAX_CONSTRAINT_NAME_LEN));
 		}
 
 		// type

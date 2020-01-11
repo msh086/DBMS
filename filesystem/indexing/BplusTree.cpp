@@ -165,7 +165,7 @@ void BplusTree::_rawSearch(const uchar* data,BplusTreeNode*& node, int& pos, int
 }
 
 /**
- * 是否存在一个索引值等于dat?是则返回true,否则返回false
+ * 是否存在一个索引值等于data?是则返回true,否则返回false
  * ? cmpColNum == 0 => 搜索到最左叶子
 */
 bool BplusTree::_search(const uchar* data, BplusTreeNode*& node, int& pos, int cmpColNum, bool isConstant, const uchar* cmps){
@@ -207,12 +207,14 @@ bool BplusTree::_preciseSearch(const uchar* data, BplusTreeNode*& node, int& pos
 
 // TODO: 如果树高太大,前面的parent可能会被bpm释放  使用checkBuffer()?
 // insertion of duplicate record is permitted
-void BplusTree::Insert(const uchar* data, const RID& rid){
+bool BplusTree::Insert(const uchar* data, const RID& rid){
     header->recordNum++;
     UpdateRecordNum();
     BplusTreeNode* node = nullptr;
     int pos = -1;
-    _search(data, node, pos); // reach the leaf node
+    bool sameValue = _search(data, node, pos); // reach the leaf node
+    if(header->isUnique && sameValue)
+        return false;
     if(node->size < header->leafCap){ // free space
         node->InsertKeynPtrAt(pos, data, rid); //* branch NO.1
         node->syncWithBuffer();
@@ -276,7 +278,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
                 // // set parent info of right
                 // right->posInParent = overflowPos + 1;
                 // right->syncWithBuffer();
-                return; //* Branch NO.2
+                return true; //* Branch NO.2
             }
             else{ // internal parent node is also full
                 // split the node
@@ -431,6 +433,7 @@ void BplusTree::Insert(const uchar* data, const RID& rid){
         right->syncWithBuffer();
         //* Branch NO.3
     } // end overflow case
+    return true;
 }
 
 bool BplusTree::Search(const uchar* data, const RID& rid){ // TODO: compare equal
@@ -466,7 +469,8 @@ bool BplusTree::ValueSearch(const uchar* data, RID* rid, int cmpColNum){
     int pos = -1;
     if(cmpColNum == -1)
         cmpColNum = colNum;
-    _search(data, node, pos, cmpColNum, true); // ? data is constant
+    return _search(data, node, pos, cmpColNum, true); // ? data is constant
+    // ? no needed ?
     if(pos == node->size){
         if(*node->NextLeafPtr() != 0){
             node = GetTreeNode(nullptr, *node->NextLeafPtr());
