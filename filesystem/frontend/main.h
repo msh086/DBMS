@@ -455,7 +455,202 @@ struct ParsingHelper{
 };
 
 struct Debugger{
-	static bool debug(std::vector<Type> &typeVec){}
+	static bool debug(std::vector<Type> &typeVec){
+		Type &TT = typeVec[0], &T1 = typeVec[1], &T3 = typeVec[2], &T5 = typeVec[3];
+		if(Global::dbms->CurrentDatabase() == nullptr){
+			Global::NoActiveDb(T1.pos);
+			return false;
+		}
+		if(T3.val.str.length() > MAX_TABLE_NAME_LEN){
+			Global::TableNameTooLong(T3.pos);
+			return false;
+		}
+		Table* table = Global::dbms->CurrentDatabase()->OpenTable(T3.val.str.data());
+		if(!table){
+			Global::NoSuchTable(T3.pos, T3.val.str.data());
+			return false;
+		}
+		Record tmpRec;
+		RID tmpRID(START_PAGE, 0);
+		table->GetRecord(tmpRID, &tmpRec); // the default record
+		const Header* header = table->GetHeader();
+		for(auto list_it = T5.valLists.begin(); list_it != T5.valLists.end(); list_it++){
+			int arg_pos = 0;
+			for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){
+				if(arg_pos == MAX_COL_NUM || header->attrType[arg_pos] == DataType::NONE){
+					Global::FieldNumNotMatch(T5.pos, table->ColNum(), list_it->size());
+					// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data()); // remember to close table before exit
+					return false;
+				}
+				if(!ParsingHelper::ConvertValue(TT.val, header->attrType[arg_pos], header->attrLenth[arg_pos], *arg_it, getBitFromLeft(header->nullMask, arg_pos))){
+					Global::IncompatibleTypes(T5.pos, header->attrName[arg_pos]);
+					// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+					return false;
+				}
+				if(arg_it->type == DataType::NONE) // null value
+					TT.val.type = DataType::NONE;
+				else
+					TT.val.type = header->attrType[arg_pos];
+				arg_pos++;
+				TT.valList.push_back(TT.val);
+			}
+			while(arg_pos < MAX_COL_NUM && header->attrType[arg_pos] != DataType::NONE){
+				if(!getBitFromLeft(header->defaultKeyMask, arg_pos)){
+					Global::NoDefaultValue(T5.pos, table->GetHeader()->attrName[arg_pos]);
+					// Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
+					return false;
+				}
+				else{
+					if(getBitFromLeft(*tmpRec.GetData(), arg_pos)){ // default value is null
+						TT.val.type = DataType::NONE;
+					}
+					else{
+						memcpy(TT.val.bytes, tmpRec.GetData() + table->ColOffset(arg_pos), DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
+						// NOTE: if default value is long varchar -> insert a COPY of the long varchar
+					}
+					TT.valList.push_back(TT.val);
+				}
+			}
+			TT.valLists.push_back(TT.valList);
+			TT.valList.clear();
+		}
+		// calc primary key const length
+		int idxRecLength = 4;
+		int primaryColCount = 0;
+		for(int i = 0; i < MAX_COL_NUM; i++){
+			uchar col_id = table->GetHeader()->primaryKeyID[i];
+			if(col_id != COL_ID_NONE){
+				primaryColCount++;
+				idxRecLength += DataType::constantLengthOf(table->GetHeader()->attrType[col_id], table->GetHeader()->attrLenth[col_id]);
+			}
+			else
+				break;
+		}
+		// check primary key constraint
+		// TODO: 检查插入多个元素时,元素之间不满足主键约束的情况
+		BplusTree* primaryIdx = nullptr;
+		if(primaryColCount){
+			uint idxPage = table->GetHeader()->primaryIndexPage;
+			assert(idxPage);
+			primaryIdx = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
+			Global::globalTree = primaryIdx;
+			std::set<const uchar*, bool(*)(const uchar*, const uchar*)> primaryCheck([](const uchar* l, const uchar* r)->bool{
+				return DataType::compareArr(l, r, Global::globalTree->header->attrType, Global::globalTree->header->attrLenth,
+					Global::globalTree->colNum, Comparator::Lt, true, true);
+			});
+			bool ok = true;
+			for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every insertion
+				uchar* buf = new uchar[idxRecLength]{0};
+				int bufPos = 4;
+				for(int i = 0; i < primaryColCount; i++){
+					uchar colID = primaryIdx->header->indexColID[i];
+					uchar colType = table->GetHeader()->attrType[colID];
+					ushort colLength = table->GetHeader()->attrLenth[colID];
+					int constantFieldLenth = DataType::constantLengthOf(colType, colLength);
+					if((*list_it)[colID].type == DataType::NONE)
+						setBitFromLeft(*(uint*)buf, colID);
+					else if(colType == DataType::CHAR || colType == DataType::VARCHAR){
+						int len = strnlen((*list_it)[colID].str.data(), colLength);
+						memcpy(buf + bufPos, (*list_it)[colID].str.data(), len);
+					}
+					else
+						memcpy(buf + bufPos, (*list_it)[colID].bytes, constantFieldLenth);
+					bufPos += constantFieldLenth;
+				}
+				if(!primaryCheck.insert(buf).second){
+					Global::PrimaryKeyConflict(T5.pos);
+					ok = false;
+					delete[] buf;
+					break;
+				}
+				RID tmpRID;
+				if(primaryIdx->SafeValueSearch(buf, &tmpRID)){
+					Global::PrimaryKeyConflict(T5.pos);
+					ok = false;
+					break;
+				}
+			}
+			for(auto check_it = primaryCheck.begin(); check_it != primaryCheck.end(); check_it++)
+				delete *check_it;
+			delete primaryIdx;
+			if(!ok)
+				return false;
+		}
+		// check foreign key constraints
+		int masterCount = table->FKMasterNum();
+		if(masterCount){
+			// for every fk master
+			for(int i = 0; i < masterCount; i++){ // 第i个外键约束
+				uchar masterName[MAX_TABLE_NAME_LEN + 1] = {0};
+				Global::dbms->CurrentDatabase()->GetTableName(table->GetHeader()->fkMaster[i], masterName);
+				Table* master = Global::dbms->CurrentDatabase()->OpenTable((char*)masterName);
+				uint idxPage = master->GetHeader()->primaryIndexPage;
+				assert(idxPage);
+				BplusTree* tree = new BplusTree(Global::dbms->CurrentDatabase()->idx, idxPage);
+				// variables used to build constant record
+				int colCount = tree->colNum;
+				int constantLength = DataType::calcConstantLength(tree->header->attrType, tree->header->attrLenth, colCount);
+				uchar constantRecord[constantLength] = {0};
+				// for every record to be inserted, check its primary constaint in master
+				for(auto record_it = TT.valLists.begin(); record_it != TT.valLists.end(); record_it++){
+					memset(constantRecord, 0, sizeof(constantRecord));
+					int bufPos = 4;
+					for(int j = 0; j < colCount; j++){ // No.j indexed field
+						uchar slaveColID = table->GetHeader()->slaveKeyID[i][j]; // slaveColID是这个索引列在slave中的ID
+						uchar colType = tree->header->attrType[j];
+						ushort colLength = tree->header->attrLenth[j];
+						int constantFieldLenth = DataType::constantLengthOf(colType, colLength);
+						if((*record_it)[slaveColID].type == DataType::NONE)
+							setBitFromLeft(*(uint*)constantRecord, j);
+						else if(colType == DataType::CHAR || colType == DataType::VARCHAR){
+							int len = strnlen((*record_it)[slaveColID].str.data(), colLength);
+							memcpy(constantRecord + bufPos, (*record_it)[slaveColID].str.data(), len);
+						}
+						else
+							memcpy(constantRecord + bufPos, (*record_it)[slaveColID].bytes, constantFieldLenth);
+						bufPos += constantFieldLenth;
+					}
+					if(!tree->SafeValueSearch(constantRecord, &tmpRID)){
+						Global::ForeignKeyNotFound(T5.pos, masterName);
+						delete tree;
+						return false;
+					}
+				}
+				delete tree;
+				Global::dbms->CurrentDatabase()->CloseTable((char*)masterName);
+			}
+		}
+		// now there is no error in input, start insertion
+		int idxRecPos = 0;
+		for(auto list_it = TT.valLists.begin(); list_it != TT.valLists.end(); list_it++){ // for every valList, build a record
+			int arg_pos = 0;
+			memset(tmpRec.GetData(), 0, 4); // set null word to 0
+			for(auto arg_it = list_it->begin(); arg_it != list_it->end(); arg_it++){ // for every field, perpare its value
+				if(arg_it->type == DataType::NONE) // null value
+					setBitFromLeft(*(uint*)(tmpRec.GetData()), arg_pos);
+				else if(header->attrType[arg_pos] == DataType::VARCHAR && header->attrLenth[arg_pos] > 255){ // long varchar
+					uchar varcharBuf[header->attrLenth[arg_pos]] = {0};
+					ushort len = 0;
+					RID dftRID = RID(*(uint*)arg_it->bytes, *(uint*)(arg_it->bytes + 4));
+					Global::dbms->CurrentDatabase()->GetLongVarchar(dftRID, varcharBuf, len);
+					Global::dbms->CurrentDatabase()->InsertLongVarchar((const char*)varcharBuf, len, &dftRID);
+					*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos)) = dftRID.GetPageNum();
+					*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos) + 4) = dftRID.GetSlotNum();
+				}
+				else if(header->attrType[arg_pos] == DataType::VARCHAR || header->attrType[arg_pos] == DataType::CHAR){
+					memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->str.data(), arg_it->str.length());
+					memset(tmpRec.GetData() + table->ColOffset(arg_pos) + arg_it->str.length(), 0, table->GetHeader()->attrLenth[arg_pos] - arg_it->str.length());
+				}
+				else
+					memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->bytes, DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
+				arg_pos++;
+			}
+			table->InsertRecord(tmpRec.GetData(), tmpRec.GetRid());
+			// update indexes
+			ParsingHelper::InsertIndexes(table, tmpRec);
+		}
+		return true;
+	}
 };
 
 #define YYSTYPE Type//把YYSTYPE(即yylval变量)重定义为struct Type类型，这样lex就能向yacc返回更多的数据了

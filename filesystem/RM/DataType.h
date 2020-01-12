@@ -629,14 +629,43 @@ class DataType{
             uint nullWordLeft = *(uint*)left, nullWordRight = *(uint*)right;
             left += 4;
             right += 4;
-            for(int i = 0; i < colNum; i++){
-                if(!compare(left, right, types[i], lengths[i], cmp, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
-                    return false;
-                int length = lengthOf(types[i], lengths[i]);
-                left += (leftConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
-                right += (rightConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+            if(cmp == Comparator::Gt || cmp == Comparator::Lt){
+                uchar weakCmp;
+                if(cmp == Comparator::Gt)
+                    weakCmp = Comparator::GtEq;
+                else if(cmp == Comparator::Lt)
+                    weakCmp = Comparator::LtEq;
+                for(int i = 0; i < colNum; i++){
+                    if(!compare(left, right, types[i], lengths[i], weakCmp, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
+                        return false;
+                    if(!compare(left, right, types[i], lengths[i], Comparator::Eq, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
+                        return true;
+                    int length = lengthOf(types[i], lengths[i]);
+                    left += (leftConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                    right += (rightConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                }
+                return false;
             }
-            return true;
+            else if(cmp == Comparator::NE){
+                for(int i = 0; i < colNum; i++){
+                    if(compare(left, right, types[i], lengths[i], Comparator::NE, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
+                        return true;
+                    int length = lengthOf(types[i], lengths[i]);
+                    left += (leftConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                    right += (rightConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                }
+                return false;
+            }
+            else{
+                for(int i = 0; i < colNum; i++){
+                    if(!compare(left, right, types[i], lengths[i], cmp, getBitFromLeft(nullWordLeft, i), getBitFromLeft(nullWordRight, i)))
+                        return false;
+                    int length = lengthOf(types[i], lengths[i]);
+                    left += (leftConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                    right += (rightConstant && types[i] == DataType::VARCHAR) ? lengths[i] : length;
+                }
+                return true;
+            }
         }
 
         /**

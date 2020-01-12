@@ -703,6 +703,7 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						return true;
 					};
+					Global::action = Debugger::debug;
 				}
 			|	DELETE FROM IDENTIFIER WHERE whereClause
 				{
