@@ -70,11 +70,11 @@ std::string Printer::FieldToStr(const Record& tmpRec, uchar type, uchar index, u
                 return std::to_string(*(float*)(tmpRec.GetData() + offset));
             }
             case DataType::CHAR:{
-                return string((char*)(tmpRec.GetData() + offset), strnlen((char*)(tmpRec.GetData() + offset), 255));
+                return string((char*)(tmpRec.GetData() + offset), strnlen((char*)(tmpRec.GetData() + offset), length));
             }
             case DataType::VARCHAR:{
                 if(length <= 255)
-                    return string((char*)(tmpRec.GetData() + offset), strnlen((char*)(tmpRec.GetData() + offset), 255));
+                    return string((char*)(tmpRec.GetData() + offset), strnlen((char*)(tmpRec.GetData() + offset), length));
                 else{
                     uchar buf[length] = {0};
                     int page = *(uint*)(tmpRec.GetData() + offset), slot = *(uint*)(tmpRec.GetData() + offset + 4);

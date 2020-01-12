@@ -31,6 +31,15 @@ int Table::CreateIndexOn(std::vector<uchar> cols, const char* idxName){
     BplusTree* tree = new BplusTree(db->idx, idxHeader);
     header->bpTreePage[idxCount] = tree->TreeHeaderPage();
     // TODO add existing record into index
+    Scanner* scanner = GetScanner([](const Record& rec)->bool{return true;});
+    Record tmpRec;
+    uchar idxBuf[tree->header->recordLenth] = {0};
+    while(scanner->NextRecord(&tmpRec)){
+        BplusTree::getIndexFromRecord(tree->header, this, tmpRec.GetData(), idxBuf);
+        tree->SafeInsert(idxBuf, *tmpRec.GetRid());
+        tmpRec.FreeMemory();
+    }
+    delete scanner;
     delete tree;
     idxCount++;
     headerDirty = true;

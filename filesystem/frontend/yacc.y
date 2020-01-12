@@ -36,7 +36,7 @@ extern "C"			//为了能够在C++程序里面调用C函数，必须把每一个�
 %token	INDEX		AND			DATE 	FLOAT
 %token	FOREIGN		REFERENCES	NUMERIC	ON
 %token 	TO			EXIT		COPY	WITH
-%token 	DELIMITER
+%token 	DELIMITER	BIGINT
 // 以上是SQL关键字
 %token 	INT_LIT		STRING_LIT	FLOAT_LIT	DATE_LIT
 %token 	IDENTIFIER	GE			LE 			NE
@@ -464,13 +464,17 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						// update master info
 						for(int i = 0; i < table->FKMasterNum(); i++){
-
+							uchar nameBuf[MAX_TABLE_NAME_LEN + 1] = {0};
+							Global::dbms->CurrentDatabase()->GetTableName(table->GetHeader()->fkSlave[i], nameBuf);
+							Table* master = Global::dbms->CurrentDatabase()->OpenTable((char*)nameBuf);
+							master->RemoveFKSlave(table->GetTableID());
+							Global::dbms->CurrentDatabase()->CloseTable((char*)nameBuf);
 						}
+						Global::dbms->CurrentDatabase()->CloseTable(T3.val.str.data());
 						if(!Global::dbms->CurrentDatabase()->DeleteTable(T3.val.str.data())){
 							Global::NoSuchTable(T3.pos, T3.val.str.data());
 							return false;
 						}
-						// TODO: update fk master info?
 						// TODO: remove long varchars?
 						return true;
 					};
@@ -556,7 +560,15 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 									if(getBitFromLeft(*tmpRec.GetData(), arg_pos)){ // default value is null
 										TT.val.type = DataType::NONE;
 									}
-									else{
+									else if(header->attrType[arg_pos] == DataType::VARCHAR && header->attrLenth[arg_pos] > 255){
+										uchar varcharBuf[header->attrLenth[arg_pos]] = {0};
+										ushort len;
+										uchar* ridAddr = tmpRec.GetData() + table->ColOffset(arg_pos);
+										RID varcharRID(*(uint*)ridAddr, *(uint*)(ridAddr + 4));
+										Global::dbms->CurrentDatabase()->GetLongVarchar(varcharRID, varcharBuf, len);
+										TT.val.str = std::string((char*)varcharBuf, len);
+									}
+									else {
 										memcpy(TT.val.bytes, tmpRec.GetData() + table->ColOffset(arg_pos), DataType::lengthOf(header->attrType[arg_pos], header->attrLenth[arg_pos]));
 										// NOTE: if default value is long varchar -> insert a COPY of the long varchar
 									}
@@ -681,13 +693,10 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 								if(arg_it->type == DataType::NONE) // null value
 									setBitFromLeft(*(uint*)(tmpRec.GetData()), arg_pos);
 								else if(header->attrType[arg_pos] == DataType::VARCHAR && header->attrLenth[arg_pos] > 255){ // long varchar
-									uchar varcharBuf[header->attrLenth[arg_pos]] = {0};
-									ushort len = 0;
-									RID dftRID = RID(*(uint*)arg_it->bytes, *(uint*)(arg_it->bytes + 4));
-									Global::dbms->CurrentDatabase()->GetLongVarchar(dftRID, varcharBuf, len);
-									Global::dbms->CurrentDatabase()->InsertLongVarchar((const char*)varcharBuf, len, &dftRID);
-									*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos)) = dftRID.GetPageNum();
-									*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos) + 4) = dftRID.GetSlotNum();
+									RID varcharRID;
+									Global::dbms->CurrentDatabase()->InsertLongVarchar(arg_it->str.data(), arg_it->str.length(), &varcharRID);
+									*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos)) = varcharRID.GetPageNum();
+									*(uint*)(tmpRec.GetData() + table->ColOffset(arg_pos) + 4) = varcharRID.GetSlotNum();
 								}
 								else if(header->attrType[arg_pos] == DataType::VARCHAR || header->attrType[arg_pos] == DataType::CHAR){
 									memcpy(tmpRec.GetData() + table->ColOffset(arg_pos), arg_it->str.data(), arg_it->str.length());
@@ -703,7 +712,6 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 						}
 						return true;
 					};
-					Global::action = Debugger::debug;
 				}
 			|	DELETE FROM IDENTIFIER WHERE whereClause
 				{
@@ -1490,7 +1498,89 @@ TbStmt		:	CREATE TABLE IDENTIFIER '(' fieldList ')'
 							delete scanner;
 						}
 						else{
-							// TODO: multi-table query ?
+							if(!Global::dbms->CurrentDatabase()){
+								Global::NoActiveDb(T1.pos);
+								return false;
+							}
+							Table* tables[T4.IDList.size()] = {0};
+							auto tableNameToIndex = [&](const std::string& name)->int{
+								for(int i = 0; i < T4.IDList.size(); i++)
+									if(T4.IDList[i] == name)
+										return i;
+								return -1;
+							};
+							auto colNameToTable = [&](const std::string& name, uchar& tbID, uchar& colID, int pos)->bool{
+								tbID = TB_ID_NONE;
+								colID = COL_ID_NONE;
+								for(int i = 0; i < T4.IDList.size(); i++){
+									uchar tmpColID = tables[i]->IDofCol(name.data());
+									if(tmpColID != COL_ID_NONE){
+										if(colID != COL_ID_NONE){
+											Global::AmbiguousField(pos, name.data());
+											return false;
+										}
+										colID = tmpColID;
+										tbID = i;
+									}
+								}
+								if(colID == COL_ID_NONE){
+									Global::NoSuchField(pos, name.data());
+									return false;
+								}
+								return true;
+							};
+							for(int i = 0; i < T4.IDList.size(); i++){
+								if(T4.IDList[i].length() > MAX_TABLE_NAME_LEN){
+									Global::TableNameTooLong(T4.pos);
+									return false;
+								}
+								tables[i] = Global::dbms->CurrentDatabase()->OpenTable(T4.IDList[i].data());
+								if(!tables[i]){
+									Global::NoSuchTable(T4.pos, T4.IDList[0].data());
+									return false;
+								}
+							}
+							// check selector
+							std::vector<uchar> wantedCols[T4.IDList.size()];
+							if(!T2.selectAll){
+								for(auto col_it = T2.colList.begin(); col_it != T2.colList.end(); col_it++){
+									if(col_it->colName.length() > MAX_ATTRI_NAME_LEN){
+										Global::FieldNameTooLong(T2.pos);
+										return false;
+									}
+									if(col_it->tableName.length()){
+										int tableIndex = tableNameToIndex(col_it->tableName);
+										if(tableIndex == -1){
+											Global::IrrelevantTable(T2.pos, col_it->tableName.data());
+											return false;
+										}
+										uchar colID = tables[tableIndex]->IDofCol(col_it->colName.data());
+										if(colID == COL_ID_NONE){
+											Global::NoSuchField(T2.pos, col_it->colName.data());
+											return false;
+										}
+										wantedCols[tableIndex].push_back(colID);
+									}
+									else{
+										uchar colID = COL_ID_NONE, tbID = TB_ID_NONE;
+										if(!colNameToTable(col_it->colName, tbID, colID, T2.pos))
+											return false;
+										wantedCols[tbID].push_back(colID);
+									}
+								}
+								for(int i = 0; i < T4.IDList.size(); i++)
+									std::sort(wantedCols[i].begin(), wantedCols[i].end());
+							}
+							else{ // select*
+								for(int i = 0; i < T4.IDList.size(); i++)
+									for(int j = 0; j < tables[i]->ColNum(); j++)
+										wantedCols[i].push_back(j);
+							}
+							MultiScanner multiScanner;
+							for(int i = 0; i < T4.IDList.size(); i++)
+								multiScanner.AddScanner(tables[i]->GetScanner([](const Record& rec)->bool{return true;}));
+							multiScanner.PrintSelection(wantedCols);
+							multiScanner.DeleteScanners();
 						}
 						return true;
 					};
@@ -2390,6 +2480,11 @@ type		:	KW_INT
 					printf("YACC: type int\n");
 					$$.val.type = DataType::INT;
 				}
+			|	BIGINT
+				{
+					printf("YACC: type bigint\n");
+					$$.val.type = DataType::BIGINT;
+				}
 			|	DATE
 				{
 					printf("YACC: type data\n");
@@ -2454,12 +2549,13 @@ type		:	KW_INT
 valueLists	:	'(' valueList ')'
 				{
 					printf("YACC: valueLists base\n");
+					$$.valLists.clear();
 					$$.valLists.push_back($2.valList);
 				}
 			|	valueLists ',' '(' valueList ')'
 				{
 					printf("YACC: valueLists recur\n");
-					$$.valLists = $$.valLists;
+					$$.valLists = $1.valLists;
 					$$.valLists.push_back($4.valList);
 				}
 			;

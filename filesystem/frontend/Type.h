@@ -106,9 +106,6 @@ struct Type//通常这里面每个成员，每次只会使用其中一个，一�
 	std::vector<WhereInstr> condList;
 	// constraint type
 	std::vector<Constraint> constraintList;
-	// 偷懒的方法:用来保证只有parse到最顶层时才会执行sql.同时使代码不至于都挤到一起
-	std::vector<Type> typeBuf;
-	bool (*action)(std::vector<Type>& typeVec) = nullptr;
 };
 
 #endif

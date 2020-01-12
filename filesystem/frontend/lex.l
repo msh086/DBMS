@@ -92,6 +92,7 @@ SIMPLE_OP	 ("+"|"-"|"*"|"/"|"("|")"|">"|"<"|"="|","|"."|";")
 "select"		{yylval.pos = Global::pos; Global::pos += yyleng; return SELECT;}
 "is"			{yylval.pos = Global::pos; Global::pos += yyleng; return IS;}
 "int"			{yylval.pos = Global::pos; Global::pos += yyleng; return KW_INT;}
+"bigint"		{yylval.pos = Global::pos; Global::pos += yyleng; return BIGINT;}
 "varchar"		{yylval.pos = Global::pos; Global::pos += yyleng; return VARCHAR;}
 "char"			{yylval.pos = Global::pos; Global::pos += yyleng; return CHAR;}
 "default"		{yylval.pos = Global::pos; Global::pos += yyleng; return DEFAULT;}
