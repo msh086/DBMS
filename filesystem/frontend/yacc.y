@@ -1819,7 +1819,7 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD colField
 							return false;
 						}
 						// 没有默认值,表非空,不能执行
-						if(!T5.field.hasDefault && table->GetHeader()->recordNum == 0){
+						if(!T5.field.nullable && !T5.field.hasDefault && table->GetHeader()->recordNum != 0){
 							Global::NoDefaultValue(T5.pos, (const uchar*)T5.field.name.data());
 							return false;
 						}
@@ -1876,10 +1876,9 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD colField
 							indexes.push_back(new BplusTree(Global::dbms->CurrentDatabase()->idx, table->GetHeader()->primaryIndexPage));
 						Scanner* scanner = table->GetScanner([](const Record& rec)->bool{return true;});
 						while(scanner->NextRecord(&tmpRec)){
-							assert(T5.field.hasDefault);
 							memset(recBuf, 0, sizeof(recBuf));
 							memcpy(recBuf, tmpRec.GetData(), table->GetHeader()->recordLenth);
-							if(T5.field.defaultValue.type == DataType::NONE)
+							if(!T5.field.hasDefault || T5.field.defaultValue.type == DataType::NONE)
 								setBitFromLeft(*(uint*)recBuf, table->ColNum());
 							else if(T5.field.type == DataType::VARCHAR && T5.field.length > 255){ // 尽管原来的记录中也可能有long varchar,但是并不影响
 								Global::dbms->CurrentDatabase()->InsertLongVarchar(T5.field.defaultValue.str.data(), T5.field.defaultValue.str.length(), &recRID);
@@ -1984,11 +1983,11 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD colField
 						removeBitFromLeft(header.nullMask, dropCol);
 						removeBitFromLeft(header.defaultKeyMask, dropCol);
 						memmove(header.attrType + dropCol, header.attrType + dropCol + 1, moveNum);
-						header.attrType[table->ColNum()] = DataType::NONE;
+						header.attrType[table->ColNum() - 1] = DataType::NONE;
 						memmove(&header.attrLenth[dropCol], &header.attrLenth[dropCol + 1], sizeof(ushort) * moveNum);
-						header.attrLenth[table->ColNum()] = 0;
+						header.attrLenth[table->ColNum() - 1] = 0;
 						memmove(header.attrName[dropCol], header.attrName[dropCol + 1], MAX_ATTRI_NAME_LEN * moveNum);
-						memset(header.attrName[table->ColNum()], 0, MAX_ATTRI_NAME_LEN);
+						memset(header.attrName[table->ColNum() - 1], 0, MAX_ATTRI_NAME_LEN);
 						header.recordLenth -= rmFieldLength;
 						header.slotNum = PAGE_SIZE / header.recordLenth;
 						// 更新索引和外键中列的ID

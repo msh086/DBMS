@@ -65,7 +65,7 @@ class Table{
         while(globalPos < globalEnd){
             if(src[localPos] != 0xff){
                 for(int i = 0; i < 8; i++)
-                    if(src[localPos] & (0x80 >> i) == 0)
+                    if((src[localPos] & (0x80 >> i)) == 0)
                         return ((globalPos - header->GetLenth()) << 3) + i;
                 assert(false);
             }
@@ -272,46 +272,7 @@ class Table{
 
         void ConvertTextToBin(const char* src, uchar* dst, ushort length, uchar type);
 
-        bool BatchLoad(const char* filename, char delim){
-            std::ifstream fin;
-            fin.open(filename);
-            if(fin.fail())
-                return false;
-            char lineBuf[PAGE_SIZE] = {0};
-            uchar recBuf[header->recordLenth] = {0};
-            int iter = 0, last = 0; // [last, iter) in linebuf
-            int recPos = 4, recField = 0;
-            char c;
-            while(true){
-                c = fin.get();
-                if(c == EOF)
-                    break;
-                if(c == '\n'){
-                    assert(recField == colCount);
-                    RID rid;
-                    InsertRecord(recBuf, &rid);
-                    memset(lineBuf, 0, iter);
-                    memset(recBuf, 0, sizeof(recBuf));
-                    last = iter = 0;
-                    recPos = 4;
-                    recField = 0;
-                    continue;
-                }
-                if(c == delim){ // handle field
-                    assert(recField < colCount);
-                    if(strncmp(lineBuf + last, "null", iter - last) == 0)
-                        setBitFromLeft(*(uint*)recBuf, recField);
-                    else
-                        ConvertTextToBin(lineBuf + last, recBuf + recPos, header->attrLenth[recField], header->attrType[recField]);
-                    recPos += DataType::lengthOf(header->attrType[recField], header->attrLenth[recField]);
-                    recField++;
-                    last = iter;
-                }
-                else
-                    lineBuf[iter++] = c;
-            }
-            return true;
-        }
+        bool BatchLoad(const char* filename, char delim);
 
         /**
          * Return the RID of the inserted record

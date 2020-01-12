@@ -74,6 +74,57 @@ bool Table::RemoveIndex(const char* idxName){
     return true;
 }
 
+bool Table::BatchLoad(const char* filename, char delim){
+    std::ifstream fin;
+    fin.open(filename);
+    if(fin.fail())
+        return false;
+    char lineBuf[PAGE_SIZE] = {0};
+    uchar recBuf[header->recordLenth] = {0};
+    int iter = 0, last = 0; // [last, iter) in linebuf
+    int recPos = 4, recField = 0;
+    char c;
+    std::vector<BplusTree*> trees;
+    if(header->primaryIndexPage)
+        trees.push_back(new BplusTree(db->idx, header->primaryIndexPage));
+    for(int i = 0; i < idxCount; i++)
+        trees.push_back(new BplusTree(db->idx, header->bpTreePage[i]));
+    while(true){
+        c = fin.get();
+        if(c == EOF)
+            break;
+        if(c == '\n'){
+            assert(recField == colCount);
+            RID rid;
+            InsertRecord(recBuf, &rid);
+            for(int i = 0; i < trees.size(); i++){
+                uchar idxBuf[trees[i]->header->recordLenth]{0};
+                BplusTree::getIndexFromRecord(trees[i]->header, this, recBuf, idxBuf);
+                trees[i]->SafeInsert(idxBuf, rid);
+            }
+            memset(lineBuf, 0, iter);
+            memset(recBuf, 0, sizeof(recBuf));
+            last = iter = 0;
+            recPos = 4;
+            recField = 0;
+            continue;
+        }
+        if(c == delim){ // handle field
+            assert(recField < colCount);
+            if(strncmp(lineBuf + last, "null", iter - last) == 0)
+                setBitFromLeft(*(uint*)recBuf, recField);
+            else
+                ConvertTextToBin(lineBuf + last, recBuf + recPos, header->attrLenth[recField], header->attrType[recField]);
+            recPos += DataType::lengthOf(header->attrType[recField], header->attrLenth[recField]);
+            recField++;
+            last = iter;
+        }
+        else
+            lineBuf[iter++] = c;
+    }
+    return true;
+}
+
 // ! 检查由parser完成
 void Table::RemovePrimaryKey(){
     memset(header->primaryKeyID, COL_ID_NONE, MAX_COL_NUM);

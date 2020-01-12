@@ -38,6 +38,7 @@ class Printer{
             putchar('\n');
         }
         HorizontalLine(maxWidth, ColCount);
+        printf("%d Lines selected\n", RowCount - 1);
     }
 
     static std::string FieldToStr(const Record& tmpRec, uchar type, uchar index, ushort length, uint offset);
