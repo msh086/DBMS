@@ -107,6 +107,11 @@
 #define TMP_RESERVED_TABLE_NAME "TMP"
 #define PRIMARY_RESERVED_IDX_NAME "PRMIARY_INDEX"
 
+/**
+ * table中最多容纳buftracker的个数
+*/
+#define MAX_TABLE_BUF_SIZE 100
+
 #define DEBUG // If this macro is set, debug methods are available
 
 #define RELEASE 1

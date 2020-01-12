@@ -5,6 +5,7 @@
 #include "../bufmanager/BufPageManager.h"
 #include "../RM/SimpleUtils.h"
 #include <vector>
+#include <queue>
 #include <string>
 #include <cassert>
 #include <fstream>
@@ -46,7 +47,22 @@ class Table{
         BufTracker(uint page, int idx):page(page), idx(idx){};
     };
 
-    std::vector<BufTracker> trackers;
+    std::queue<BufTracker> trackers;
+
+    void WriteBackTracker(const BufTracker& tracker){
+        int curPage, curFid;
+        bpm->getKey(tracker.idx, curFid, curPage);
+        if(fid == curFid && tracker.page == curPage)
+            bpm->writeBack(tracker.idx);
+    }
+
+    void PushTracker(const BufTracker& tracker){
+        if(trackers.size() == MAX_TABLE_BUF_SIZE){
+            WriteBackTracker(trackers.front());
+            trackers.pop();
+        }
+        trackers.push(tracker);
+    }
 
     //private helper methods
     /**
@@ -184,7 +200,7 @@ class Table{
         else{
             src = tmpBuf = bpm->reusePage(fid, dstPage, tmpIdx, tmpBuf);
             bpm->markDirty(tmpIdx);
-            trackers.push_back(BufTracker(dstPage, tmpIdx));
+            PushTracker(BufTracker(dstPage, tmpIdx));
         }
         (*(src + localPos)) |= (0x80 >> remain);
     }
@@ -203,7 +219,7 @@ class Table{
         else{
             src = tmpBuf = bpm->reusePage(fid, dstPage, tmpIdx, tmpBuf);
             bpm->markDirty(tmpIdx);
-            trackers.push_back(BufTracker(dstPage, tmpIdx));
+            PushTracker(BufTracker(dstPage, tmpIdx));
         }
         (*(src + localPos)) &= ~(0x80 >> remain);
     }
@@ -263,7 +279,7 @@ class Table{
                 return nullptr;
             }
             tmpBuf = bpm->reusePage(fid, rid.GetPageNum(), tmpIdx, tmpBuf);
-            trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
+            PushTracker(BufTracker(rid.PageNum, tmpIdx));
             ans->data = new uchar[header->recordLenth];
             memcpy(ans->data, ((uchar*)tmpBuf) + rid.GetSlotNum() * header->recordLenth, header->recordLenth);
             ans->id = new RID(rid.GetPageNum(), rid.GetSlotNum());
@@ -290,7 +306,7 @@ class Table{
             //inserting the record
             UintToRID(firstEmptySlot, rid);
             tmpBuf = bpm->reusePage(fid, rid->PageNum, tmpIdx, tmpBuf);
-            trackers.push_back(BufTracker(rid->PageNum, tmpIdx));
+            PushTracker(BufTracker(rid->PageNum, tmpIdx));
             memcpy(tmpBuf + rid->SlotNum * header->recordLenth, data, header->recordLenth);
             bpm->markDirty(tmpIdx);
             return rid;
@@ -322,7 +338,7 @@ class Table{
                 return;
             }
             tmpBuf = bpm->reusePage(fid, rid.PageNum, tmpIdx, tmpBuf);
-            trackers.push_back(BufTracker(rid.PageNum, tmpIdx));
+            PushTracker(BufTracker(rid.PageNum, tmpIdx));
             memcpy(tmpBuf + rid.SlotNum * header->recordLenth + dstOffset, data + srcOffset, length);
             bpm->markDirty(tmpIdx);
         }
@@ -567,13 +583,10 @@ class Table{
                 if(fid == curFid && curPage == 0)
                     bpm->writeBack(headerIdx);
             }
-            for(auto it = trackers.begin(); it != trackers.end(); it++){
-                int curPage, curFid;
-                bpm->getKey(it->idx, curFid, curPage);
-                if(fid == curFid && it->page == curPage)
-                    bpm->writeBack(it->idx);
+            while(!trackers.empty()){
+                WriteBackTracker(trackers.front());
+                trackers.pop();
             }
-            trackers.clear();
         }
 
         /**
