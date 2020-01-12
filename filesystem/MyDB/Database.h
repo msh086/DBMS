@@ -254,6 +254,10 @@ class Database{
         Table* OpenTable(const char* tablename){
             if(!TableExists(tablename))
                 return nullptr;
+            for(auto table_it = activeTables.begin(); table_it != activeTables.end(); table_it++){
+                if(identical(tablename, (*table_it)->GetTableName(), MAX_TABLE_NAME_LEN))
+                    printf("WARNING: reopening table %s", tablename);
+            }
             int fid;
             bool openret = fm->openFile(getPath(tablename), fid);
             if(!openret){

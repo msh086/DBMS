@@ -17,6 +17,11 @@ void setBitFromLeft(uint& bitmap, int posFromLeft){
     bitmap |= 1 << (31 - posFromLeft);
 }
 
+void removeBitFromLeft(uint& bitmap, int posFromLeft){
+    bitmap = (bitmap & (0xffffffff << (32 - posFromLeft))) | ((bitmap & (0xffffffff >> (posFromLeft + 1))) << 1);
+    // keep leftmost posFromLeft bits, discard bit at index posFromLeft, shift the remaining 31 - posFromLeft bits left a bit
+}
+
 float readFloatFromString(const char* src){
     const char* dot = strchr(src, '.');
     int len = strlen(src);

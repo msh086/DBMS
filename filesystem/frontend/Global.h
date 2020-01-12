@@ -239,6 +239,9 @@ class Global{
 		static void DropOnlyCol(int pos, const char* name){
 			newError(pos, format("Cannot drop the only column %s", name));
 		}
+		static void DropMasterTable(int pos, const char* name){{
+			newError(pos, format("Cannot drop master table %s", name));
+		}}
 };
 
 #endif

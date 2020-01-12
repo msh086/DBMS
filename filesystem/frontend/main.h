@@ -370,8 +370,8 @@ struct ParsingHelper{
 		}
 		uchar* bytes = (uchar*)&fkMask;
 		for(int i = 0; i < 4; i++){
-			ans.push_back(IDtoChar(bytes[i] >> 8));
-			ans.push_back(IDtoChar(bytes[i] & 7));
+			ans.push_back(IDtoChar(bytes[i] >> 4));
+			ans.push_back(IDtoChar(bytes[i] % 4));
 		}
 		return ans;
 	}

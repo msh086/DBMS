@@ -23,6 +23,8 @@ void clearBitFromLeft(uint& bitmap, int posFromLeft);
 
 void setBitFromLeft(uint& bitmap, int posFromLeft);
 
+void removeBitFromLeft(uint& bitmap, int posFromLeft);
+
 template<typename T>
 T readNumFromString(const char* src, int& pos){
     T ans = 0;
