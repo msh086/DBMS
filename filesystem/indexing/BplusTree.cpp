@@ -220,7 +220,7 @@ bool BplusTree::Insert(const uchar* data, const RID& rid){
         node->syncWithBuffer();
     }
     else{ // the leaf node is full
-        if(node->parent == nullptr)
+        // if(node->parent == nullptr)
             node->parent = GetTreeNode(nullptr, node->parentPage);
         // split the leaf node first
         BplusTreeNode* right = CreateTreeNode(node->parent, BplusTreeNode::Leaf);
@@ -260,7 +260,7 @@ bool BplusTree::Insert(const uchar* data, const RID& rid){
         // after we split pNode into pNode and ofRight, node and right will be assgined as pNode and ofRight respectively
         // then we move on to the next level
         while(node->parentPage != 0){
-            if(node->parent == nullptr)
+            // if(node->parent == nullptr)
                 node->parent = GetTreeNode(nullptr, node->parentPage);
             BplusTreeNode* pNode = node->parent;
             // int overflowPos = pNode->findFirstGreaterInInternal(overflowKey);
@@ -593,7 +593,7 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
         // no need to update parent's key
     }
     else if(node->parentPage != 0){ // leaf has exactly leafMinKey keys, underflow
-        BplusTreeNode *pNode =  node->parent ? node->parent : (node->parent = GetTreeNode(nullptr, node->parentPage)), 
+        BplusTreeNode *pNode =  (node->parent = GetTreeNode(nullptr, node->parentPage)), 
             *leftNode = nullptr, *rightNode = nullptr;
         if(node->posInParent > 0){ // has left sibling
             leftNode = GetTreeNode(pNode, *pNode->NodePtrAt(node->posInParent - 1));
@@ -695,7 +695,7 @@ void BplusTree::Remove(const uchar* data, const RID& rid){
                 }
             }
             // this node is not the root node
-            pNode = node->parent == nullptr ? (node->parent = GetTreeNode(nullptr, node->parentPage)) : node->parent;
+            pNode = node->parent = GetTreeNode(nullptr, node->parentPage);
             if(node->posInParent > 0){ // has left sibling
                 leftNode = GetTreeNode(pNode, *pNode->NodePtrAt(node->posInParent - 1));
                 if(leftNode->size > internalMinKey){ // borrow a key from left sibling

@@ -196,7 +196,7 @@ class Scanner{
                 std::vector<std::string> tmpRow;
                 for(auto select_it = selected.begin(); select_it != selected.end(); select_it++)
                     tmpRow.push_back(Printer::FieldToStr(tmpRec, table->GetHeader()->attrType[*select_it], *select_it, table->GetHeader()->attrLenth[*select_it], table->ColOffset(*select_it)));
-                tb.push_back(tmpRow);
+                tb.push_back(std::move(tmpRow));
                 rowCount++;
             }
             Printer::PrintTable(tb, colCount, rowCount);

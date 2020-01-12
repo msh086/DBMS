@@ -122,6 +122,9 @@ bool Table::BatchLoad(const char* filename, char delim){
         else
             lineBuf[iter++] = c;
     }
+    fin.close();
+    for(auto it = trees.begin(); it != trees.end(); it++)
+        delete *it;
     return true;
 }
 
@@ -130,9 +133,8 @@ void Table::RemovePrimaryKey(){
     memset(header->primaryKeyID, COL_ID_NONE, MAX_COL_NUM);
     memset(header->primaryIndexName, 0, MAX_INDEX_NAME_LEN);
     if(header->primaryIndexPage){
-        BplusTree* tree = new BplusTree(db->idx, header->primaryIndexPage);
-        tree->DeleteTreeFromDisk();
-        delete tree;
+        BplusTree tree(db->idx, header->primaryIndexPage);
+        tree.DeleteTreeFromDisk();
         header->primaryIndexPage = 0;
     }
     headerDirty = true;
@@ -160,7 +162,7 @@ bool Table::CreatePrimaryIndex(){
     while(ok && scanner->NextRecord(&tmpRec)){
         memset(buf, 0, sizeof(buf));
         BplusTree::getIndexFromRecord(tree->header, this, tmpRec.GetData(), buf);
-        if(!tree->Insert(buf, *tmpRec.GetRid()))
+        if(!tree->SafeInsert(buf, *tmpRec.GetRid()))
             ok = false;
         tmpRec.FreeMemory();
     }

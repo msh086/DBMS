@@ -2206,6 +2206,10 @@ AlterStmt	:	ALTER TABLE IDENTIFIER ADD colField
 							Global::PrimaryConstraintReferenced(T1.pos, table->GetHeader()->primaryIndexName);
 							return false;
 						}
+						if(!table->GetHeader()->primaryIndexPage){
+							Global::newError(T1.pos, "No primary key");
+							return false;
+						}
 						table->RemovePrimaryKey();
 						return true;
 					};

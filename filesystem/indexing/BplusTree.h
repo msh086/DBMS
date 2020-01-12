@@ -130,8 +130,8 @@ class BplusTree{
             
             // ! Debug only
             // 2-4 tree
-            header->internalCap = 5;
-            header->leafCap = 4;
+            // header->internalCap = 5;
+            // header->leafCap = 4;
             // ! end
             
             // root init
@@ -364,14 +364,13 @@ class BplusTree{
                         Q.push(*node->NodePtrAt(i));
                 }
                 rid.PageNum = Q.front();
+                node->writeBack();
                 table->DeleteRecord(rid);
                 Q.pop();
             }
             for(BplusTreeNode* node : nodes)
                 delete node;
             nodes.clear();
-            delete root;
-            root = nullptr;
             rid.PageNum = page;
             table->DeleteRecord(rid);
             delete header;
